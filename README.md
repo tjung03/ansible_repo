@@ -17,7 +17,7 @@
 
 ## 실습 구성
 
-각 디렉터리는 자체 Inventory와 설정을 사용하는 독립 실습 단위입니다.
+주제별 디렉터리에서 실습을 선택합니다. 대부분 자체 `ansible.cfg`와 Inventory를 사용하지만, `03_inventory`는 Inventory 구성 예제이며 `05_facts`는 `inventory1`·`inventory2`를 `-i`로 선택합니다.
 
 | 경로 | 내용 |
 |---|---|
@@ -56,7 +56,7 @@ ansible webservers -b -m ansible.builtin.command -a 'httpd -t'
 ansible webservers -b -m ansible.builtin.command -a 'systemctl is-active httpd'
 ```
 
-브라우저에서는 대상 서버의 FQDN으로 HTTP 접속해 배포한 페이지를 확인합니다. [08_project의 검사 Play](08_project/plays/test.yml)는 지정한 HTTP·HTTPS URL의 응답 코드 200을 검사하며, [하드웨어 보고서 결과](05_hwreport/results/)에는 호스트별 수집 파일이 남아 있습니다.
+브라우저에서는 대상 서버의 FQDN으로 HTTP 접속해 배포한 페이지를 확인합니다. [08_project의 검사 Play](08_project/plays/test.yml)는 지정한 HTTP·HTTPS URL의 응답 코드 200을 검사합니다. 이 검사는 `validate_certs: false`로 TLS 인증서 검증을 생략합니다.  [하드웨어 보고서 결과](05_hwreport/results/)에는 호스트별 수집 파일이 남아 있습니다.
 
 ## 실행 시 참고
 
