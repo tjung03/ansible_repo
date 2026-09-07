@@ -1,2 +1,9 @@
-# Local Ansible Vault password files
+# Local Ansible Vault passwords and account data
 vault-pass
+/05_exec-ansible-vault/vars/secret.yml
+/05_secret/secret.yml
+/05_variables_facts/vars/secret.yml
+/05_variables_facts/files/htpasswd
+
+# Collected authentication logs
+/07_files/secure-backups/
