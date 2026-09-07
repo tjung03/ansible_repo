@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: MIT
+---
+
+- name: Ensure that the role configures dynamic dns
+  hosts: all,!ad
+  vars:
+    ad_integration_realm: sample-realm.com
+    __ad_integration_test_sssd_config_only: true
+    ad_integration_sssd_settings:
+      - key: reconnection_retries
+        value: 5
+      - key: default_domain_suffix
+        value: addomain.xyz
+
+  tasks:
+    - name: See if /dev/log exists for the fingerprint check
+      stat:
+        path: /dev/log
+      register: __register_dev_log
+
+    - name: Set the start time for the journal search
+      set_fact:
+        __journal_start_time: "{{ ansible_facts['date_time']['date'] ~ ' ' ~ ansible_facts['date_time']['time'] }}"
+      when: __register_dev_log.stat.exists
+
+    - name: Test - Run the system role with bogus vars
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        __sr_public: true
+
+  # look for the exact module invocation, not some other message that might contain the string
+    - name: Check system journal contains role fingerprints
+      shell:
+        executable: /bin/bash
+        cmd: >-
+          set -eo pipefail;
+          journalctl --since "{{ __journal_start_time }}" --no-pager |
+          grep -v " Invoked with" | grep "sr_fingerprint.*begin system_role:ad_integration" ||
+          { echo ERROR: BEGIN fingerprint not found; exit 1; };
+          journalctl --since "{{ __journal_start_time }}" --no-pager |
+          grep -v " Invoked with" | grep "sr_fingerprint.*success system_role:ad_integration" ||
+          { echo ERROR: SUCCESS fingerprint not found; exit 1; }
+      changed_when: false
+      when: __register_dev_log.stat.exists
+
+    - name: Check SSSD settings
+      community.general.ini_file:
+        path: "{{ __ad_integration_sssd_conf }}"
+        state: "{{ item.state | default('present') }}"
+        section: sssd
+        option: "{{ item.key }}"
+        value: "{{ item.value }}"
+        create: true
+        owner: root
+        group: root
+        mode: u=rw,g=,o=
+      loop: "{{ ad_integration_sssd_settings }}"
+      register: __result
+      failed_when: __result is changed
+
+    - name: Search /var/log/sssd/sssd.log for [sss_ini_call_validators]
+      command: >-
+        grep -i sss_ini_call_validators /var/log/sssd/sssd.log
+      register: sssd_log
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if signature found
+      fail:
+        msg: Appears to be an unsupported option in /etc/sssd/sssd.conf
+      when: sssd_log.stdout | length > 0
+
+    - name: Test - Re-Build a list of settings with state=absent
+      set_fact:
+        update_list: "{{ ad_integration_sssd_settings | map('combine', {'state': 'absent'}) | list }}"
+
+    - name: Test - Re-run the system role to remove vars
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        ad_integration_sssd_settings: "{{ update_list }}"
+
+    - name: Check custom SSSD settings
+      community.general.ini_file:
+        path: "{{ __ad_integration_sssd_conf }}"
+        state: "{{ item.state | default('present') }}"
+        section: sssd
+        option: "{{ item.key }}"
+        value: "{{ item.value }}"
+        create: true
+        owner: root
+        group: root
+        mode: u=rw,g=,o=
+      loop: "{{ update_list }}"
+      register: __result
+      failed_when: __result is changed

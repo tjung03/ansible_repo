@@ -1,0 +1,6 @@
+---
+# Task
+- name: 패키지 삭제 - {{ pkgs }}
+  ansible.builtin.dnf:
+    name: "{{ pkgs }}"
+    state: absent

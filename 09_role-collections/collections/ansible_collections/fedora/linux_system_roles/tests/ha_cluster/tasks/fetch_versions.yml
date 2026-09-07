@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Fetch pcs capabilities
+  command:
+    cmd: pcs --version --full
+  register: __test_pcs_version
+  changed_when: false
+
+- name: Parse pcs capabilities
+  set_fact:
+    __test_pcs_capabilities: "{{ __test_pcs_version.stdout_lines[1].split() }}"
+
+- name: Fetch package facts
+  package_facts:
+
+- name: Debug pacemaker version
+  debug:
+    var: ansible_facts.packages['pacemaker']
+
+- name: Extract versions of cluster components
+  set_fact:
+    __test_pacemaker_version: "{{ ansible_facts.packages['pacemaker'][0]['version'] }}"
+    __test_pcs_version: "{{ ansible_facts.packages['pcs'][0]['version'] }}"
+
+- name: CIB schema version
+  when: with_cib_schema_version | d(false)
+  block:
+    - name: Discover CIB schema version
+      command:
+        cmd: >
+          xmllint
+          --xpath 'substring-after(/cib/@validate-with, "pacemaker-")'
+          /var/lib/pacemaker/cib/cib.xml
+      register: __test_cib_validate_with_xpath
+      changed_when: false
+
+    - name: Extract versions of cluster components
+      set_fact:
+        __test_cib_validate_with: "{{ __test_cib_validate_with_xpath.stdout }}"

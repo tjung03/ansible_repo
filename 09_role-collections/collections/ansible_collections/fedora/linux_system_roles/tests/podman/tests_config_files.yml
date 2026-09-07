@@ -1,0 +1,241 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Ensure that the role can manage its config files
+  hosts: all
+  tasks:
+    - name: Run the tests
+      vars:
+        __tmp_dir: "{{ __podman_tmp_dir.path }}"
+        __tar_file: "{{ __tmp_dir ~ '/backup.tar' }}"
+        __system_files:
+          - "{{ __podman_containers_conf_system }}"
+          - "{{ __podman_registries_conf_system }}"
+          - "{{ __podman_storage_conf_system }}"
+          - "{{ __podman_policy_json_system }}"
+        __podman_test_username: podman_config_files_user
+        __user_files:
+          - /home/{{ __podman_test_username }}/{{ __podman_containers_conf_user }}
+          - /home/{{ __podman_test_username }}/{{ __podman_registries_conf_user }}
+          - /home/{{ __podman_test_username }}/{{ __podman_storage_conf_user }}
+          - /home/{{ __podman_test_username }}/{{ __podman_policy_json_user }}
+        podman_containers_conf:
+          containers:
+            container_name_as_hostname: true
+            annotations:
+              environment: production
+              status: tier2
+          engine:
+            service_destinations:
+              test:
+                uri: unix:///run/podman/podman.sock
+                identity: /root/.ssh/id_rsa
+              test2:
+                uri: unix:///run/podman/podman.sock
+                identity: /root/.ssh/id_rsa
+        podman_registries_conf:
+          aliases:
+            myregistry: registry.example.com
+          unqualified-search-registries:
+            - registry-1.example.com
+            - registry-2.example.com
+          credential-helpers:
+            - cred-helper-1
+            - cred-helper-2
+          registry:
+            - prefix: example.com/foo
+              insecure: true
+              mirror:
+                - location: example-mirror-0.com
+                  insecure: false
+                - location: example-mirror-1.com
+                  insecure: true
+            - prefix: example.com/bar
+              insecure: false
+              mirror:
+                - location: example-mirror-2.com
+                  insecure: false
+                - location: example-mirror-3.com
+                  insecure: true
+        podman_storage_conf:
+          storage:
+            runroot: /tmp
+            graphroot: /var/lib/containers/storage
+        podman_policy_json:
+          default:
+            type: insecureAcceptAnything
+        __credential_files:
+          - file_content: this.is.a.credential
+      block:
+        - name: Run the role with no config to get private vars
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            podman_run_as_user: root
+            podman_containers_conf: {}
+            podman_registries_conf: {}
+            podman_storage_conf: {}
+            podman_policy_json: {}
+
+        - name: Create temp directory
+          tempfile:
+            state: directory
+            prefix: lsr_podman_config_
+          register: __podman_tmp_dir
+
+        - name: Create backup
+        # noqa command-instead-of-module
+          command: >-
+            tar --ignore-failed-read -c -P -v -p -f {{ __tar_file }}
+            {{ __system_files | join(" ") }}
+          changed_when: false
+
+        - name: Create user
+          user:
+            name: "{{ __podman_test_username }}"
+            uid: 4001
+
+        - name: Run the role with user config
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            podman_run_as_user: "{{ __podman_test_username }}"
+            podman_run_as_group: "{{ __podman_test_username }}"
+            podman_credential_files: "{{ __credential_files }}"
+
+        - name: Check that files exist and are non-null
+          stat:
+            path: "{{ item }}"
+          register: __stat
+          failed_when: not __stat.stat.exists or __stat.stat.size == 0
+          loop: "{{ __user_files }}"
+
+        - name: Check that boolean values are rendered correctly
+          command: grep 'container_name_as_hostname[ ]*=[ ]*true' {{ __user_files[0] }}
+          changed_when: false
+
+        - name: Run the role again with user config
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            podman_run_as_user: "{{ __podman_test_username }}"
+            podman_run_as_group: "{{ __podman_test_username }}"
+            podman_credential_files: "{{ __credential_files }}"
+
+        - name: Check that files still exist and are non-null
+          stat:
+            path: "{{ item }}"
+          register: __stat
+          failed_when: not __stat.stat.exists or __stat.stat.size == 0
+          loop: "{{ __user_files }}"
+
+        - name: Check that nothing changed
+          assert:
+            that:
+              - not __podman_container_config_register is changed
+              - not __podman_registries_config_register is changed
+              - not __podman_storage_config_register is changed
+
+        - name: Run the role with root config
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            podman_run_as_user: root
+            podman_credential_files: "{{ __credential_files }}"
+
+        - name: Check that files exist and are non-null
+          stat:
+            path: "{{ item }}"
+          register: __stat
+          failed_when: not __stat.stat.exists or __stat.stat.size == 0
+          loop: "{{ __system_files }}"
+
+        - name: Run the role again with root config
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            podman_run_as_user: root
+            podman_credential_files: "{{ __credential_files }}"
+
+        - name: Check that files still exist and are non-null
+          stat:
+            path: "{{ item }}"
+          register: __stat
+          failed_when: not __stat.stat.exists or __stat.stat.size == 0
+          loop: "{{ __system_files }}"
+
+        - name: Check that nothing changed
+          assert:
+            that:
+              - not __podman_container_config_register is changed
+              - not __podman_registries_config_register is changed
+              - not __podman_storage_config_register is changed
+
+        - name: Check for ansible_managed, fingerprint in generated files
+          include_tasks: tasks/check_header.yml
+          loop:
+            - /home/{{ __podman_test_username }}/{{ __podman_containers_conf_user }}
+            - /home/{{ __podman_test_username }}/{{ __podman_registries_conf_user }}
+            - /home/{{ __podman_test_username }}/{{ __podman_storage_conf_user }}
+            - "{{ __podman_containers_conf_system }}"
+            - "{{ __podman_registries_conf_system }}"
+            - "{{ __podman_storage_conf_system }}"
+          loop_control:
+            loop_var: __file
+          vars:
+            __fingerprint: "system_role:podman"
+
+        - name: Try formatting sub-dict as TOML table with new formatter
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            podman_use_new_toml_formatter: true
+
+        - name: Get config file
+          slurp:
+            path: "{{ __system_files[0] }}"
+          register: __conf_file
+
+        - name: Check config file
+          assert:
+            that:
+              - item in __conf
+          loop: "{{ __strings }}"
+          vars:
+            __conf: "{{ __conf_file.content | b64decode }}"
+            __strings:
+              - '[engine.service_destinations.test]'
+              - 'uri = "unix:///run/podman/podman.sock"'
+              - 'identity = "/root/.ssh/id_rsa"'
+              - '[engine.service_destinations.test2]'
+              - 'uri = "unix:///run/podman/podman.sock"'
+              - 'identity = "/root/.ssh/id_rsa"'
+
+      rescue:
+        - name: Dump journal
+          command: journalctl -ex
+          changed_when: false
+          failed_when: true
+
+      always:
+        - name: Remove test config files
+          file:
+            state: absent
+            path: "{{ item }}"
+          loop: "{{ __system_files + __user_files }}"
+
+        - name: Remove credential files
+          file:
+            state: absent
+            path: "{{ item }}"
+          loop:
+            - /root/.config/containers/auth.json
+            - /home/{{ __podman_test_username }}/{{ __podman_containers_conf_user }}
+
+        - name: Restore system config files
+        # noqa command-instead-of-module
+          command: tar xfvpP {{ __tar_file }}
+          changed_when: false
+
+        - name: Remove temp directory
+          file:
+            state: absent
+            path: "{{ __tmp_dir }}"

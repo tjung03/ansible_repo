@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: MIT
+---
+# Back up auditd configuration and rules before integration tests.
+# Sets facts for cleanup.yml:
+# * __auditd_integration_backup_tmp - temp dir for backups
+# * __auditd_integration_find_files - list of auditd files from find module
+
+- name: Create temporary directory for test backups
+  ansible.builtin.tempfile:
+    state: directory
+    path: /var/tmp # needs to be persistent across reboots
+    prefix: lsr_auditd_
+  register: __auditd_integration_backup_tmp
+
+- name: Find existing auditd configuration and rules
+  ansible.builtin.find:
+    paths: /etc/audit
+    file_type: file
+    recurse: true
+  register: __auditd_integration_find_files
+
+- name: Make any missing directories in the backup temporary directory
+  ansible.builtin.file:
+    path: "{{ __auditd_integration_backup_tmp.path }}{{ item }}"
+    state: directory
+    mode: "0750"
+  loop: "{{ __auditd_integration_find_files.files | map(attribute='path') | map('dirname') | unique | list }}"
+
+- name: Back up auditd files
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "{{ __auditd_integration_backup_tmp.path }}{{ item.path }}"
+    remote_src: true
+    mode: preserve
+  loop: "{{ __auditd_integration_find_files.files }}"
+
+# We restart auditd many times during the tests, so we need to modify the
+# start limit interval and burst to prevent the service from failing to start.
+- name: Create service drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/auditd.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Modify the auditd service start limit interval and burst
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/auditd.service.d/startlimit.conf
+    content: |
+      [Service]
+      StartLimitInterval=60
+      StartLimitBurst=60
+    owner: root
+    group: root
+    mode: "0644"
+  register: __auditd_modify_limit
+
+# We restart auditd many times during the tests, so we need to modify the
+# start limit interval and burst to prevent the service from failing to start.
+- name: Create service drop-in directory for audit-rules
+  ansible.builtin.file:
+    path: /etc/systemd/system/audit-rules.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Modify the audit-rules service start limit interval and burst
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/audit-rules.service.d/startlimit.conf
+    content: |
+      [Service]
+      StartLimitInterval=60
+      StartLimitBurst=60
+    owner: root
+    group: root
+    mode: "0644"
+  register: __audit_rules_modify_limit
+
+- name: Reload systemd daemon to apply changes
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: __auditd_modify_limit is changed or __audit_rules_modify_limit is changed # noqa no-handler

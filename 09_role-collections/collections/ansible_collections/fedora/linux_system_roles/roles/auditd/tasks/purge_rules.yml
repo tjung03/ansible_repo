@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: MIT
+---
+# Remove files under rules.d when auditd_purge_rules is true. If
+# auditd_manage_rules and existing custom.rules already matches the rendered
+# template (body from first "-D" onward), custom.rules is left in place so the
+# follow-up template task can be skipped for changed: false.
+- name: Purge rules.d directory
+  vars:
+    __auditd_rulesd_dir: "{{ __auditd_rules_file | dirname }}"
+    __auditd_custom_rules_path: "{{ __auditd_rules_file }}"
+  block:
+    - name: Discover files in rules.d
+      ansible.builtin.find:
+        paths: "{{ __auditd_rulesd_dir }}"
+        file_type: file
+      register: __auditd_rulesd_find
+
+    - name: Stat existing custom.rules before purge
+      ansible.builtin.stat:
+        path: "{{ __auditd_custom_rules_path }}"
+      register: __auditd_purge_custom_stat
+
+    - name: Read existing custom.rules for comparison
+      ansible.builtin.slurp:
+        path: "{{ __auditd_custom_rules_path }}"
+      register: __auditd_purge_custom_slurp
+      when: __auditd_purge_custom_stat.stat.exists
+
+    - name: Record whether to keep existing custom.rules (managed rules)
+      ansible.builtin.set_fact:
+        __auditd_purge_keep_custom_rules: >-
+          {{
+            (__auditd_purge_custom_stat.stat.exists | default(false))
+            and (__auditd_expected_sig | length > 0)
+            and (__auditd_current_sig | length > 0)
+            and (__auditd_expected_sig == __auditd_current_sig)
+          }}
+      vars:
+        __auditd_expected_rendered: "{{ lookup('ansible.builtin.template', 'custom.rules.j2') }}"
+        __auditd_current_body: >-
+          {{
+            (__auditd_purge_custom_slurp.content | b64decode)
+            if (
+              (__auditd_purge_custom_slurp is defined)
+              and not (__auditd_purge_custom_slurp.skipped | default(false))
+            )
+            else ''
+          }}
+        __auditd_expected_sig: >-
+          {{
+            ('-D\n' ~ (__auditd_expected_rendered.split('\n-D\n', 1) | last))
+            if ('\n-D\n' in __auditd_expected_rendered)
+            else __auditd_expected_rendered
+          }}
+        __auditd_current_sig: >-
+          {{
+            ('-D\n' ~ (__auditd_current_body.split('\n-D\n', 1) | last))
+            if (__auditd_current_body | length > 0 and '\n-D\n' in __auditd_current_body)
+            else __auditd_current_body
+          }}
+
+    - name: Remove files from rules.d
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ __auditd_rulesd_find.files | default([]) }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when: >-
+        not (
+          (item.path | basename == 'custom.rules')
+          and (__auditd_purge_keep_custom_rules | default(false) | bool)
+        )
+      notify: Run augenrules

@@ -1,0 +1,450 @@
+---
+- name: Test firewall user defined ipsets
+  hosts: all
+  vars:
+    previous_replaced:
+      - {previous: replaced}
+    _test_ipsets:
+      - ipset: customipset-ipv4
+        ipset_type: "hash:ip"
+        ipset_entries:
+          - 127.0.0.1
+          - 8.8.8.8
+        ipset_options:
+          hashsize: 120
+          maxelem: 1000
+        short: Custom
+        description: Custom IPSet for testing purposes
+        state: present
+      - ipset: customipset-ipv6
+        ipset_type: "hash:ip"
+        ipset_entries:
+          - 2001:4860:4860::8844
+          - 2001:4860:4860::8888
+        ipset_options:
+          hashsize: 120
+          maxelem: 1000
+        short: Custom
+        description: Custom IPSet for testing purposes
+        state: present
+  tasks:
+    - name: Test firewall user defined ipsets
+      block:
+
+      # INIT TEST
+
+        - name: Start from clean slate
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            firewall:
+              - previous: replaced
+
+      # Verify customipset-ipv4 and ipv6 ipsets are not already defined
+        - name: Check for customipset-ipv4 and ipv6 ipsets
+          command: firewall-offline-cmd --get-ipsets
+          register: result
+          changed_when: false
+          failed_when: '"customipset-ipv4" in result.stdout or "customipset-ipv6" in result.stdout'
+
+      # Begin custom ipset tests
+
+        - name: Define new ipsets
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall: "{{ _test_ipsets }}"
+
+        - name: Fail if ipsets not added
+          command: firewall-offline-cmd --get-ipsets
+          register: result
+          changed_when: false
+          failed_when: '"customipset-ipv4" not in result.stdout or "customipset-ipv6" not in result.stdout'
+
+        - name: Fail if entry not added to ipset
+          command: firewall-offline-cmd --ipset {{ item.name | quote }} --query-entry {{ item.entry | quote }}
+          loop:
+            - name: customipset-ipv4
+              entry: 8.8.8.8
+            - name: customipset-ipv6
+              entry: 2001:4860:4860::8844
+            - name: customipset-ipv6
+              entry: 2001:4860:4860::8888
+          changed_when: false
+
+        - name: Fail if options not added to ipset
+          command: firewall-offline-cmd --info-ipset {{ item.name | quote }}
+          loop:
+            - name: customipset-ipv4
+              option1: hashsize=120
+              option2: maxelem=1000
+            - name: customipset-ipv6
+              option1: hashsize=120
+              option2: maxelem=1000
+          changed_when: false
+          register: result
+          failed_when: result.stdout is not search(item.option1) or result.stdout is not search(item.option2)
+
+        - name: Redefine new ipsets
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - ipset: customipset-ipv4
+                short: Custom
+                description: Custom IPSet for testing purposes
+                state: present
+                ipset_options:
+                  hashsize: 120
+                  maxelem: 1000
+              - ipset: customipset-ipv6
+                short: Custom
+                description: Custom IPSet for testing purposes
+                state: present
+                ipset_options:
+                  hashsize: 120
+                  maxelem: 1000
+
+        - name: Fail if defining ipset not idempotent
+          fail:
+            msg: Defining ipsets is not idempotent
+          when: firewall_lib_result is changed # noqa no-handler
+
+        - name: Redefine new ipsets with previous replaced
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall: "{{ _test_ipsets + previous_replaced }}"
+
+        - name: Fail if defining ipset not idempotent with previous replaced
+          fail:
+            msg: Defining ipsets is not idempotent
+          when: firewall_lib_result is changed # noqa no-handler
+
+      # modify ipset options not supported in container or image build
+        - name: Modify ipset options
+          when: __firewall_is_booted | d(true)
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - ipset: customipset-ipv4
+                state: present
+                ipset_options:
+                  hashsize: 240
+              - ipset: customipset-ipv6
+                state: present
+                ipset_options:
+                  hashsize: 240
+              - ipset: customipset-ipv4
+                state: absent
+                ipset_options:
+                  maxelem:
+              - ipset: customipset-ipv6
+                state: absent
+                ipset_options:
+                  maxelem:
+
+        - name: Fail if options not modified in ipset
+          when: __firewall_is_booted | d(true)
+          command: firewall-offline-cmd --info-ipset {{ item.name | quote }}
+          loop:
+            - name: customipset-ipv4
+              option: hashsize=240
+            - name: customipset-ipv6
+              option: hashsize=240
+          changed_when: false
+          register: result
+          failed_when: result.stdout is not search(item.option)
+
+        - name: Fail if options not removed from ipset
+          when: __firewall_is_booted | d(true)
+          command: firewall-offline-cmd --info-ipset {{ item.name | quote }}
+          loop:
+            - name: customipset-ipv4
+              option: maxelem=
+            - name: customipset-ipv6
+              option: maxelem=
+          changed_when: false
+          register: result
+          failed_when: result.stdout is search(item.option)
+
+        - name: Remove entries and options from ipset
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - ipset: customipset-ipv4
+                ipset_entries:
+                  - 8.8.8.8
+                  - 127.0.0.1
+                ipset_options:
+                  hashsize:
+                  maxelem:
+                state: absent
+              - ipset: customipset-ipv6
+                ipset_entries:
+                  - 2001:4860:4860::8844
+                  - 2001:4860:4860::8888
+                ipset_options:
+                  hashsize:
+                  maxelem:
+                state: absent
+
+        - name: Fail if ipsets removed
+          shell:
+            executable: /bin/bash
+            cmd: |
+              set -euo pipefail
+              firewall-offline-cmd --get-ipsets | grep {{ item | quote }}
+          loop:
+            - customipset-ipv4
+            - customipset-ipv6
+          changed_when: false
+
+        - name: Fail if entry not removed from ipset
+          command: firewall-offline-cmd --ipset {{ item.name | quote }} --query-entry {{ item.entry | quote }}
+          loop:
+            - name: customipset-ipv4
+              entry: 8.8.8.8
+            - name: customipset-ipv6
+              entry: 2001:4860:4860::8844
+            - name: customipset-ipv6
+              entry: 2001:4860:4860::8888
+          changed_when: false
+          register: result
+          failed_when: result.rc != 1
+
+        - name: Fail if not all options removed from ipset
+          command: firewall-offline-cmd --info-ipset {{ item.name | quote }}
+          loop:
+            - name: customipset-ipv4
+              option1: hashsize=
+              option2: maxelem=
+            - name: customipset-ipv6
+              option1: hashsize=
+              option2: maxelem=
+          when: __firewall_is_booted | d(true)
+          changed_when: false
+          register: result
+          failed_when: result.stdout is search(item.option1) or result.stdout is search(item.option2)
+
+        - name: Test update short and description
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - ipset: customipset-ipv4
+                short: CustomChanged
+                description: Custom IPSet for testing purposes (changed)
+                state: present
+                runtime: false
+              - ipset: customipset-ipv6
+                short: CustomChanged
+                description: Custom IPSet for testing purposes (changed)
+                state: present
+                runtime: false
+
+        - name: Verify changes
+          command: "{{ item['command'] }}"
+          changed_when: false
+          register: result
+          loop:
+            - command: |
+                firewall-offline-cmd --ipset customipset-ipv4 --get-description
+              expected: "Custom IPSet for testing purposes (changed)"
+            - command: |
+                firewall-offline-cmd --ipset customipset-ipv4 --get-short
+              expected: "CustomChanged"
+            - command: |
+                firewall-offline-cmd --ipset customipset-ipv6 --get-description
+              expected: "Custom IPSet for testing purposes (changed)"
+            - command: |
+                firewall-offline-cmd --ipset customipset-ipv6 --get-short
+              expected: "CustomChanged"
+          failed_when: result.stdout != item["expected"]
+
+      # Test that ipsets can be added to zones
+        - name: Add ipsets to default zone (runtime)
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - source: "ipset:customipset-ipv4"
+                state: enabled
+                permanent: false
+              - source: "ipset:customipset-ipv6"
+                state: enabled
+                permanent: false
+          when: __firewall_is_booted
+
+        - name: Add ipsets to default zone again (runtime)
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - source: "ipset:customipset-ipv4"
+                state: enabled
+                permanent: false
+              - source: "ipset:customipset-ipv6"
+                state: enabled
+                permanent: false
+          when: __firewall_is_booted
+
+        - name: Fail if adding ipsets is not idempotent (runtime)
+          fail:
+            msg: "enabling ipsets in zones is not idempotent (runtime)"
+          when:
+            - firewall_lib_result is changed # noqa no-handler
+            - __firewall_is_booted
+
+        - name: Add ipsets to default zone (permanent)
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - source: "ipset:customipset-ipv4"
+                state: enabled
+                runtime: false
+              - source: "ipset:customipset-ipv6"
+                state: enabled
+                runtime: false
+
+        - name: Fail if adding ipsets reports no changes
+          fail:
+            msg: "enabling ipsets in zones reports no changes"
+          when: firewall_lib_result is not changed # noqa no-handler
+
+        - name: Add ipsets to default zone again (permanent)
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - source: "ipset:customipset-ipv4"
+                state: enabled
+                runtime: false
+              - source: "ipset:customipset-ipv6"
+                state: enabled
+                runtime: false
+
+        - name: Fail if adding ipsets is not idempotent (permanent)
+          fail:
+            msg: "enabling ipsets in zones is not idempotent (permanent)"
+          when: firewall_lib_result is changed # noqa no-handler
+
+        - name: Remove ipsets from default zone
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - source: "ipset:customipset-ipv4"
+                state: disabled
+              - source: "ipset:customipset-ipv6"
+                state: disabled
+
+        - name: Fail if removing ipsets reports no changes
+          fail:
+            msg: "removing ipsets in zones reports no changes"
+          when: firewall_lib_result is not changed # noqa no-handler
+
+        - name: Remove custom ipsets
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - ipset: customipset-ipv4
+                state: absent
+              - ipset: customipset-ipv6
+                state: absent
+
+        - name: Fail if ipsets not removed
+          shell:
+            executable: /bin/bash
+            cmd: |
+              set -euo pipefail
+              firewall-offline-cmd --get-ipsets | grep {{ item | quote }}
+          loop:
+            - customipset-ipv4
+            - customipset-ipv6
+          changed_when: false
+          register: result
+          failed_when: result.rc != 1
+
+        - name: Remove custom ipsets again
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - ipset: customipset-ipv4
+                state: absent
+              - ipset: customipset-ipv6
+                state: absent
+
+        - name: Fail if not idempotent
+          fail:
+            msg: Removing ipsets is not idempotent
+          when: firewall_lib_result is changed # noqa no-handler
+
+        - name: Remove custom ipsets again with previous replaced
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - previous: replaced
+              - ipset: customipset-ipv4
+                state: absent
+              - ipset: customipset-ipv6
+                state: absent
+
+        - name: Fail if not idempotent with previous replaced
+          fail:
+            msg: Removing ipsets is not idempotent with previous replaced
+          when: firewall_lib_result is changed # noqa no-handler
+
+        - name: Test ipset with wrong family
+          block:
+            - name: Test ipset with wrong family (ipv4)
+              include_tasks: tasks/run_role_with_clear_facts.yml
+              vars:
+                firewall:
+                  - ipset: badipset-v4
+                    ipset_entries:
+                      - 127.0.0.1
+                      - 8.8.8.8
+                    ipset_options:
+                      family: inet6
+                    state: present
+
+            - name: This task should not be reached
+              fail:
+                msg: Unreachable
+          rescue:
+            - name: Fail if error message is not correct
+              fail:
+                msg: Incorrect error message for badipset-v4
+              vars:
+                expected_error_message: >-
+                  ipset badipset-v4: family=inet6 is not supported for IPv4
+                  ipset_entries 127.0.0.1, 8.8.8.8
+              when: expected_error_message not in ansible_failed_result.msg
+
+        - name: Test ipset with wrong family (ipv6)
+          block:
+            - name: Test ipset with wrong family (ipv6)
+              include_tasks: tasks/run_role_with_clear_facts.yml
+              vars:
+                firewall:
+                  - ipset: badipset-v6
+                    ipset_entries:
+                      - 2001:4860:4860::8844
+                      - 2001:4860:4860::8888
+                    ipset_options:
+                      family: inet
+                    state: present
+
+            - name: This task should not be reached
+              fail:
+                msg: Unreachable
+          rescue:
+            - name: Fail if error message is not correct
+              fail:
+                msg: Incorrect error message for badipset-v6
+              vars:
+                expected_error_message: >-
+                  ipset badipset-v6: family=inet is not supported for IPv6
+                  ipset_entries 2001:4860:4860::8844, 2001:4860:4860::8888
+              when: expected_error_message not in ansible_failed_result.msg
+      always:
+        - name: Cleanup
+          tags:
+            - tests::cleanup
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - previous: replaced

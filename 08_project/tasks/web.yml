@@ -1,0 +1,14 @@
+---
+# Task
+# 웹 서버 패키지 설치(httpd, mod_ssl) 및 서비스 기동(httpd) - include_tasks
+- name: 1-web-1) 패키지 설치 - {{ pkg_webs }}
+  ansible.builtin.dnf:
+    name: "{{ pkg_webs }}"
+    state: present
+
+- name: 1-web-2) 서비스 기동 - {{ svc_web }}
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: "{{ svc_web }}"

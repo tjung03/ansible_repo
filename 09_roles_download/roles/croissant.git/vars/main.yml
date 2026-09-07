@@ -1,0 +1,4 @@
+---
+# vars file for git
+src: /usr/src
+git_version: 2.9.0

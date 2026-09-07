@@ -1,0 +1,38 @@
+---
+- name: Ensure that the rule runs with IPv6 disabled
+  hosts: all
+  tags:
+    - tests::reboot
+  tasks:
+    - name: Disable IPv6
+      include_role:
+        name: fedora.linux_system_roles.bootloader
+      vars:
+        bootloader_settings:
+          - kernel: ALL
+            options:
+              - name: ipv6.disable_ipv6
+                value: "1"
+        bootloader_reboot_ok: true
+
+    - name: Run handlers
+      meta: flush_handlers
+
+    - name: Run the postfix role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        __sr_public: true
+
+    - name: Enable IPv6
+      include_role:
+        name: fedora.linux_system_roles.bootloader
+      vars:
+        bootloader_settings:
+          - kernel: ALL
+            options:
+              - name: ipv6.disable_ipv6
+                state: absent
+        bootloader_reboot_ok: true
+
+    - name: Run handlers again
+      meta: flush_handlers

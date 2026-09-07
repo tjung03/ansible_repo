@@ -1,0 +1,67 @@
+---
+- name: Issue many self-signed certificates
+  hosts: all
+
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        certificate_requests:
+          - name: mycert_many_self_signed
+            dns: www.example.com
+            ca: self-sign
+          - name: other-cert
+            dns: www.example.org
+            ca: self-sign
+          - name: another-cert
+            dns: www.example.net
+            ca: self-sign
+      when: not __bootc_validation | d(false)
+
+    - name: Create QEMU deployment during bootc end-to-end test
+      delegate_to: localhost
+      become: false
+      command: "{{ lsr_scriptdir }}/bootc-buildah-qcow.sh {{ ansible_host }}"
+      changed_when: true
+      when: ansible_connection == "buildah"
+
+    - name: Load certificate role platform variables
+      include_role:
+        name: fedora.linux_system_roles.certificate
+        tasks_from: set_vars.yml
+        public: true
+
+    - name: Verify each certificate
+      include_tasks: tasks/assert_certificate_parameters.yml
+      loop: "{{ certificates }}"
+      loop_control:
+        loop_var: cert
+      vars:
+        certificates:
+          - path: "{{ __certificate_default_directory }}/certs/mycert_many_self_signed.crt"
+            key_path: "{{ __certificate_default_directory }}/private/mycert_many_self_signed.key"
+            subject:
+              - name: commonName
+                oid: 2.5.4.3
+                value: www.example.com
+            subject_alt_name:
+              - name: DNS
+                value: www.example.com
+          - path: "{{ __certificate_default_directory }}/certs/other-cert.crt"
+            key_path: "{{ __certificate_default_directory }}/private/other-cert.key"
+            subject:
+              - name: commonName
+                oid: 2.5.4.3
+                value: www.example.org
+            subject_alt_name:
+              - name: DNS
+                value: www.example.org
+          - path: "{{ __certificate_default_directory }}/certs/another-cert.crt"
+            key_path: "{{ __certificate_default_directory }}/private/another-cert.key"
+            subject:
+              - name: commonName
+                oid: 2.5.4.3
+                value: www.example.net
+            subject_alt_name:
+              - name: DNS
+                value: www.example.net

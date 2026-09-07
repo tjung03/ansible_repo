@@ -1,0 +1,32 @@
+---
+- name: Restore playbook.yml
+  hosts: all
+  gather_facts: false
+  tasks:
+    #############################################################
+    # 1) Task 사용해서 삭제
+    # 2) 사용자 정의 팩트 삭제
+    #############################################################
+    # 1) Task 사용해서 삭제
+    - name: 1) Task 사용해서 삭제
+      ansible.builtin.include_tasks:
+        file: tasks/remove_all.yml
+      vars:
+        fw_svcs:
+          - http
+          - mysql
+        svcs:
+          - httpd
+          - mariadb
+        files:
+          - /var/www/html/index.html
+        pkgs:
+          - httpd
+          - mariadb
+          - mariadb-server
+
+    # 2) 사용자 정의 팩트 삭제
+    - name: 2) 사용자 정의 팩트 삭제
+      ansible.builtin.file:
+        path: /etc/ansible/facts.d
+        state: absent        

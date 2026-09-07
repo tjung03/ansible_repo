@@ -1,0 +1,189 @@
+---
+- name: Test disk error handling
+  hosts: all
+  become: true
+  vars:
+    mount_location: '/opt/test1'
+    testfile: "{{ mount_location }}/quux"
+    __storage_min_size: "10g"
+    __storage_max_return: 1
+  tags:
+    - tests::lvm
+  tasks:
+    - name: Prep storage role and discover unused disks
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: Verify that the role fails when no disks are specified
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_params:
+          storage_volumes:
+            - name: test1
+              type: disk
+              mount_point: "{{ mount_location }}"
+        __storage_failed_regex: no disks specified for volume 'test1'
+        __storage_failed_msg: Role did not report that no disks were specified
+
+    - name: Verify that the role fails with the expected error message
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_params:
+          storage_volumes:
+            - name: test1
+              type: disk
+              disks: ['/dev/surelyidonotexist']
+              mount_point: "{{ mount_location }}"
+
+    - name: Test for correct handling of duplicate volume names
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_regex: "multiple volumes with the same name:"
+        __storage_failed_msg: >-
+          Unexpected behavior w/ multiple disk volumes using the same name
+        __storage_failed_params:
+          storage_volumes:
+            - name: vol1
+              type: disk
+              disks: "{{ unused_disks }}"
+            - name: vol1
+              type: disk
+              disks: "{{ unused_disks }}"
+
+    - name: Create a file system on disk
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_volumes:
+          - name: test1
+            type: disk
+            fs_type: ext4
+            disks: "{{ unused_disks }}"
+            mount_point: "{{ mount_location }}"
+
+    - name: Create a file
+      file:
+        path: "{{ testfile }}"
+        state: touch
+        mode: "0644"
+
+    - name: Test for correct handling of safe_mode
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_regex: >-
+          cannot remove existing formatting on volume.*in safe mode
+        __storage_failed_msg: >-
+          Unexpected behavior w/ existing data on specified disks
+        __storage_failed_params:
+          storage_volumes:
+            - name: test1
+              type: disk
+              fs_type: ext3
+              disks: "{{ unused_disks }}"
+
+    - name: Unmount file system
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_volumes:
+          - name: test1
+            type: disk
+            fs_type: ext4
+            disks: "{{ unused_disks }}"
+            mount_point: none
+
+    - name: Test for correct handling of safe_mode with unmounted filesystem
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_regex: >-
+          cannot remove existing formatting on volume.*in safe mode
+        __storage_failed_msg: >-
+          Unexpected behavior w/ existing data on specified disks
+        __storage_failed_params:
+          storage_volumes:
+            - name: test1
+              type: disk
+              fs_type: ext3
+              disks: "{{ unused_disks }}"
+
+    - name: Remount file system
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_volumes:
+          - name: test1
+            type: disk
+            fs_type: ext4
+            disks: "{{ unused_disks }}"
+            mount_point: "{{ mount_location }}"
+
+    - name: Stat the file
+      stat:
+        path: "{{ testfile }}"
+      register: stat_r
+
+    - name: Assert file presence
+      assert:
+        that: stat_r.stat.isreg is defined and stat_r.stat.isreg
+        msg: data lost!
+
+    - name: Test for correct handling of safe_mode - 2
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_regex: >-
+          cannot remove existing formatting and/or devices on disk.*in safe mode
+        __storage_failed_msg: >-
+          Unexpected behavior w/ existing data on specified disks
+        __storage_failed_params:
+          storage_pools:
+            - name: foo
+              disks: "{{ unused_disks }}"
+              type: partition
+
+    - name: Test for correct handling of safe_mode with existing filesystem
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_regex: >-
+          cannot remove existing formatting .*and/or devices on disk.*in
+          safe mode
+        __storage_failed_msg: >-
+          Unexpected behavior w/ existing data on specified disks
+        __storage_failed_params:
+          storage_pools:
+            - name: foo
+              disks: "{{ unused_disks }}"
+              type: lvm
+
+    - name: Stat the file - 2
+      stat:
+        path: "{{ testfile }}"
+      register: stat_r
+
+    - name: Assert file presence - 2
+      assert:
+        that: stat_r.stat.isreg is defined and stat_r.stat.isreg
+        msg: data lost!
+
+    - name: >-
+        Create a partition pool on the disk already containing a file system
+        w/o safe_mode
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_safe_mode: false
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            type: partition
+
+    - name: Verify the output
+      assert:
+        that: not blivet_output.failed
+        msg: >-
+          failed to create partition pool over existing file system w/o
+          safe_mode
+
+    - name: Clean up
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_safe_mode: false
+        storage_pools:
+          - name: foo
+            type: partition
+            disks: "{{ unused_disks }}"
+            state: absent

@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Ensure that running the role does not update packages
+  hosts: all
+  tasks:
+    - name: Get package facts
+      package_facts:
+      no_log: true
+
+    - name: Save current package facts
+      set_fact:
+        __crypto_policies_packages_before: "{{ ansible_facts.packages }}"
+      no_log: true
+
+    - name: Include role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+
+    - name: Refresh package facts
+      package_facts:
+      no_log: true
+
+    - name: Verify packages were not changed
+      assert:
+        that: ansible_facts.packages == __crypto_policies_packages_before

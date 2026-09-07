@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Ensure that the role runs with default parameters
+  hosts: all
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        aide_init: true
+    - name: Check if the file exists
+      ansible.builtin.stat:
+        path: /etc/aide.conf
+      register: file_check
+
+    - name: Assert that the file exists
+      ansible.builtin.assert:
+        that: file_check.stat.exists
+        fail_msg: The file does not exist.

@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: MIT
+---
+# Purge rules.d: remove extra fragments, keep matching custom.rules; second run
+# leaves custom.rules unchanged (checksum-stable).
+- name: Test auditd_purge_rules purge and idempotence
+  hosts: all
+  vars:
+    __auditd_purge_test_decoy: /etc/audit/rules.d/99-lsr-purge-decoy.rules
+  tasks:
+    - name: Exercise purge and validate
+      block:
+        - name: Back up existing auditd configuration and rules metadata
+          ansible.builtin.include_tasks: tasks/setup.yml
+
+        - name: Install decoy rules fragment to be removed by purge
+          ansible.builtin.copy:
+            dest: "{{ __auditd_purge_test_decoy }}"
+            mode: "0644"
+            content: |
+              # LSR purge test decoy (must be deleted when purge runs)
+              -w /tmp -p r -k lsr_purge_decoy
+
+        - name: Run auditd role with purge enabled
+          ansible.builtin.include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            auditd_start_service: false
+            auditd_purge_rules: true
+            auditd_manage_rules: true
+            auditd_rules:
+              - action: always
+                filter: exit
+                arch: b64
+                syscall: open
+                path: /etc/issue
+                permission:
+                  - read
+                keyname: lsr_auditd_purge_test
+
+        - name: Flush handlers after first role run
+          ansible.builtin.meta: flush_handlers
+
+        - name: Stat decoy fragment after purge
+          ansible.builtin.stat:
+            path: "{{ __auditd_purge_test_decoy }}"
+          register: __auditd_purge_test_stat_decoy
+
+        - name: Verify decoy rules file was purged
+          ansible.builtin.assert:
+            that:
+              - not __auditd_purge_test_stat_decoy.stat.exists
+
+        - name: Read custom.rules after purge
+          ansible.builtin.slurp:
+            path: /etc/audit/rules.d/custom.rules
+          register: __auditd_purge_test_rules_slurp
+
+        - name: Verify custom.rules reflects role auditd_rules
+          ansible.builtin.assert:
+            that:
+              - "'-F path=/etc/issue' in __rules_body"
+              - "'-F key=lsr_auditd_purge_test' in __rules_body"
+          vars:
+            __rules_body: "{{ __auditd_purge_test_rules_slurp.content | b64decode }}"
+
+        - name: Capture checksum of custom.rules before second role run
+          ansible.builtin.stat:
+            path: /etc/audit/rules.d/custom.rules
+            checksum_algorithm: sha256
+          register: __auditd_purge_test_stat_before_repeat
+
+        - name: Run auditd role again with identical purge and rules
+          ansible.builtin.include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            auditd_start_service: false
+            auditd_purge_rules: true
+            auditd_manage_rules: true
+            auditd_rules:
+              - action: always
+                filter: exit
+                arch: b64
+                syscall: open
+                path: /etc/issue
+                permission:
+                  - read
+                keyname: lsr_auditd_purge_test
+
+        - name: Flush handlers after second role run
+          ansible.builtin.meta: flush_handlers
+
+        - name: Stat custom.rules after second role run
+          ansible.builtin.stat:
+            path: /etc/audit/rules.d/custom.rules
+            checksum_algorithm: sha256
+          register: __auditd_purge_test_stat_after_repeat
+
+        - name: Verify custom.rules unchanged on idempotent second run
+          ansible.builtin.assert:
+            that:
+              - __auditd_purge_test_stat_before_repeat.stat.checksum is defined
+              - __auditd_purge_test_stat_after_repeat.stat.checksum is defined
+              - >-
+                __auditd_purge_test_stat_before_repeat.stat.checksum
+                == __auditd_purge_test_stat_after_repeat.stat.checksum
+
+      always:
+        - name: Restore system state after purge test
+          ansible.builtin.include_tasks: tasks/cleanup.yml
+          tags: tests::cleanup

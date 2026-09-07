@@ -1,0 +1,129 @@
+---
+- name: 0) 3-Tier Architecture 구현
+  hosts: web1
+  tasks:
+    ##############################################
+    # 1) WEB SERVER 구축(Apache + PHP + PHP-MYSQL)
+    #   1-1) 패키지 설치 - httpd, mod_ssl, php, php-mysqlnd, php-pdo, firewalld
+    #   1-2) 서비스 설정 - /var/www/html/index.php
+    #   1-3) 서비스 기동 - httpd, firewalld
+    #   1-4) 방화벽 등록 - http(80/tcp), https(443/tcp)
+    # 2) DB SERVER 구축
+    #   2-1) 패키지 설치 - mariadb, mariadb-server
+    #   2-2) 서비스 기동 - mariadb
+    #   2-3) 서비스 설정 - mysql_secure_installation, DB 사용자 생성(*.*)
+    #   2-4) 방화벽 등록 - mysql(3306/tcp)
+    ##############################################
+    # 1) WEB SERVER 구축(Apache + PHP + PHP-MYSQL)
+    #   1-1) 패키지 설치 - httpd, mod_ssl, php, php-mysqlnd, php-pdo, firewalld
+    - name: 1-1) 패키지 설치
+      ansible.builtin.dnf:
+        name:
+          - httpd
+          - mod_ssl
+          - php
+          - php-mysqlnd
+          - php-pdo
+          - firewalld
+        state: present
+
+    #   1-2) 서비스 설정 - /var/www/html/index.php
+    - name: 1-2) 서비스 설정
+      ansible.builtin.get_url:
+        url: http://192.168.10.10/index.php.txt
+        dest: /var/www/html/index.php
+        mode: '0644'
+
+    #   1-3) 서비스 기동 - httpd, firewalld
+    - name: 1-3) 서비스 기동 - httpd
+      ansible.builtin.systemd:
+        name: httpd
+        state: started
+        enabled: true
+
+    - name: 1-3) 서비스 기동 - firewalld
+      ansible.builtin.systemd:
+        name: firewalld
+        state: started
+        enabled: true
+
+    #   1-4) 방화벽 등록 - http(80/tcp), https(443/tcp)
+    - name: 1-4) 방화벽 등록 - http(80/tcp)
+      ansible.posix.firewalld:
+        service: http
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: 1-4) 방화벽 등록 - https(443/tcp)
+      ansible.posix.firewalld:
+        service: https
+        permanent: true
+        immediate: true
+        state: enabled
+
+    # 2) DB SERVER 구축
+    #   2-1) 패키지 설치 - mariadb, mariadb-server
+    - name: 2-1) 패키지 설치 - mariadb, mariadb-server, python3-PyMySQL, python3-pexpect
+      ansible.builtin.dnf:
+        name:
+          - mariadb
+          - mariadb-server
+          - python3-PyMySQL
+          - python3-pexpect
+        state: present
+
+    #   2-2) 서비스 기동 - mariadb
+    - name: 2-2) 서비스 기동 - mariadb
+      ansible.builtin.systemd:
+        name: mariadb
+        state: started
+        enabled: true
+
+    #   2-3) 서비스 설정 - mysql_secure_installation, DB 사용자 생성(*.*)
+    - name: 2-3) 서비스 설정 - mysql_secure_installation
+      become: true
+      become_user: root
+      ansible.builtin.expect:
+        command: mysql_secure_installation
+        responses:
+          'Enter current password for root': ''
+          'Switch to unix_socket authentication': 'Y'
+          'Change the root password': 'Y'
+          'New password:': 'CHANGE_ME'
+          'Re-enter new password:': 'CHANGE_ME'
+          'Remove anonymous users': 'Y'
+          'Disallow root login remotely': 'Y'
+          'Remove test database and access to it': 'Y'
+          'Reload privilege tables now': 'Y'
+        timeout: 1
+
+    - name: 2-3) 서비스 설정 - DB 사용자 생성(*.*)
+      become: true
+      become_user: root
+      community.mysql.mysql_user:
+        name: soldesk
+        host: '%'
+        password: CHANGE_ME
+        priv: '*.*:ALL'
+        state: present
+        login_user: root
+        login_password: CHANGE_ME
+
+    #   2-4) 방화벽 등록 - mysql(3306/tcp)
+    - name: 2-4) 방화벽 등록 - mysql(3306/tcp)
+      ansible.posix.firewalld:
+        service: mysql
+        permanent: true
+        immediate: true
+        state: enabled
+
+- name: 0) 웹 서버 확인
+  hosts: localhost
+  become: false
+  tasks:
+    - name: 웹 서버 확인
+      ansible.builtin.uri:
+        url: http://web1.example.com/index.php
+        return_content: true
+        status_code: 200

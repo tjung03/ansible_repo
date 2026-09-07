@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+---
+# Here is the right place to put the role's input variables.
+# This file also serves as a documentation for such a variables.
+
+trustee_server_trustee: true
+# Secret registration server service configuration
+trustee_server_secret_registration_enabled: false
+trustee_server_secret_registration_listen_port: 8081
+trustee_server_secure_logging: true

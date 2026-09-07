@@ -1,0 +1,31 @@
+---
+- name: Ensure that the role declares all parameters in defaults
+  hosts: all
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        __sr_public: true
+
+    - name: Assert that the role declares all parameters in defaults
+      assert:
+        that: vpn_vars_vals | length == vpn_vars | length
+      vars:
+        vpn_vars:
+          - vpn_provider
+          - vpn_auth_method
+          - vpn_regen_keys
+          - vpn_connections
+          - vpn_opportunistic
+          - vpn_default_policy
+          - vpn_manage_firewall
+          - vpn_manage_selinux
+        vpn_vars_vals: "{{ lookup('vars', *vpn_vars) }}"
+
+    - name: Check the firewall and the selinux port status
+      include_tasks: tasks/check_firewall_selinux.yml
+
+    - name: Cleanup
+      include_tasks: tasks/cleanup.yml
+      tags:
+        - tests::cleanup

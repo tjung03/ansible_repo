@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Bootc end-to-end test
+  hosts: all
+  tags:
+    - tests::bootc-e2e
+  vars:
+    __selinux_sar_label_file: /var/sar-label-file
+
+  tasks:
+  # PREPARATION
+    - name: Bootc image build preparation
+      when: ansible_connection | d("") == "buildah"
+      block:
+        - name: Add a System Api Roles SELinux User
+          user:
+            comment: System Api Roles SELinux User
+            name: sar-user
+
+        - name: Create test file for relabeling
+          file:
+            path: "{{ __selinux_sar_label_file }}"
+            state: touch
+            owner: root
+            group: root
+            mode: '0644'
+
+        - name: Get currently active SELinux modules
+          command: semodule -l
+          changed_when: false
+          register: active_modules
+
+        - name: Consistency check - uuidd module is active
+          assert:
+            that:
+              - "'uuidd' in active_modules.stdout"
+
+        - name: Modify SELinux policy
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+          # enforcing is the default, so change
+            selinux_state: permissive
+            selinux_booleans:
+              - {name: 'daemons_use_tcp_wrapper', state: 'on', persistent: 'yes'}
+            selinux_logins:
+              - {login: 'sar-user', seuser: 'staff_u', state: 'present'}
+            selinux_ports:
+              - {ports: '22100', proto: 'tcp', setype: 'ssh_port_t', state: 'present'}
+            selinux_fcontexts:
+              - {target: "{{ __selinux_sar_label_file }}", setype: "var_spool_t"}
+              - {target: "/var/sar-label-file", setype: "var_spool_t"}
+            selinux_modules:
+              - {name: "uuidd", state: "disabled"}
+              - {path: "selinux_modules/linux-system-roles-selinux-test-a.pp"}
+              - {name: "linux-system-roles-selinux-test-a", state: "enabled"}
+
+        - name: Create QEMU deployment
+          delegate_to: localhost
+          command: "{{ lsr_scriptdir }}/bootc-buildah-qcow.sh {{ ansible_host }}"
+          changed_when: true
+
+    # CLEANUP
+      always:
+        - name: Reset to defaults
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            selinux_state: enforcing
+            selinux_all_purge: true
+
+        - name: Remove the System Api Roles SELinux User
+          user:
+            name: sar-user
+            state: absent
+
+  # VALIDATION
+    - name: Validation of deployed image
+      when: ansible_connection | d("") != "buildah"
+      block:
+        - name: Get SELinux state
+          command: getenforce
+          register: getenforce
+          changed_when: false
+
+        - name: Get SELinux modifications
+          import_tasks: set_selinux_variables.yml
+
+        - name: Assert expected state
+          assert:
+            that:
+              - getenforce.stdout | trim == "Permissive"
+              - selinux_role_boolean.stdout is match('^daemons_use_tcp_wrapper.*on.*on')
+              - selinux_role_login.stdout is match('^sar-user.*staff_u.*s0')
+              - selinux_role_port.stdout is match('^ssh_port_t.*22100')
+
+        - name: Get SELinux context of label test file
+          command: "ls -Z {{ __selinux_sar_label_file }}"
+          register: sar_label_file_ls
+          changed_when: false
+
+        - name: Assert SELinux context of label test file
+          assert:
+            that:
+              - "sar_label_file_ls.stdout | trim == 'system_u:object_r:var_spool_t:s0 {{ __selinux_sar_label_file }}'"
+
+        - name: Get SELinux modules
+          command: semodule -l
+          changed_when: false
+          register: active_modules
+
+        - name: Assert uuidd module is disabled and test module enabled
+          assert:
+            that:
+              - "'uuidd' not in active_modules.stdout"
+              - "'linux-system-roles-selinux-test-a' in active_modules.stdout"
+            # plausibility check
+              - "'container' in active_modules.stdout"

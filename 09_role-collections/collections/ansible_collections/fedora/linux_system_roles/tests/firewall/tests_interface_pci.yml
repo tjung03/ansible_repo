@@ -1,0 +1,285 @@
+---
+# Tests interface_pci field, test must be used in VM
+- name: Test interfaces with PCI ids
+  hosts: all
+  become: true
+  tags:
+  # container builds have no PCI devices, so ethernet interface detection
+  # won't find anything; so save ourselves the extra initial role invocation
+    - tests::booted
+  vars_files:
+    - vars/rh_distros_vars.yml
+  vars:
+  # we don't want the test short circuit assertion to be used in this test
+  # because we will check it manually below and we don't want a bunch of
+  # block/rescue
+    __firewall_debug_short_circuit_disable: true
+  tasks:
+    - name: Set expected backend
+      set_fact:
+        nftables_backend: "{{ __firewall_is_rh_distro_fedora and ansible_facts['distribution_major_version'] is version('8', '>=') }}"
+
+    - name: Find ethernet interfaces with PCI devices
+      shell: |
+        set -euo pipefail
+        find /sys/class/net -name 'e*' | while read -r iface_path; do
+          # containers only have virtual devices; for PCI we need a real one
+          if [ -n "$iface_path" ] && [ -e "$iface_path/device/vendor" ] && [ -e "$iface_path/device/device" ]; then
+            echo "$iface_path"
+          fi
+        done
+      register: find_iface_paths
+      changed_when: false
+
+    - name: Determine if system is ostree and set flag
+      when: not __firewall_is_ostree is defined
+      block:
+        - name: Check if system is ostree
+          stat:
+            path: /run/ostree-booted
+          register: __ostree_booted_stat
+
+        - name: Set flag to indicate system is ostree
+          set_fact:
+            __firewall_is_ostree: "{{ __ostree_booted_stat.stat.exists }}"
+
+    - name: Test interfaces with PCI ids
+    # this can't be tested in containers or similar envs without any real
+    # ethernet devices
+      when: find_iface_paths.stdout_lines | length > 0
+      vars:
+        iface_path: "{{ pci_id_result.stdout_lines[0] }}"
+        pci_id: "{{ pci_id_result.stdout_lines[1] }}"
+      block:
+        - name: Get temp directory
+          tempfile:
+            prefix: lsr_
+            suffix: _firewall_pci
+            state: directory
+          register: temp_dir
+
+        - name: Debug - get nftables ruleset before
+          shell: |
+            set -euo pipefail
+            nft list ruleset > {{ temp_dir.path }}/nft_before.txt || :
+          changed_when: false
+          when: nftables_backend | bool
+
+        - name: Debug - get iptables ruleset before
+          shell: |
+            set -euo pipefail
+            iptables -S > {{ temp_dir.path }}/iptables_before.txt || :
+          changed_when: false
+          when: not nftables_backend | bool
+
+        - name: Ensure NetworkManager is installed
+          package:
+            name: NetworkManager
+            state: present
+            use: "{{ (__firewall_is_ostree | d(false)) | ternary('ansible.posix.rhel_rpm_ostree', omit) }}"
+          register: nm_package_result
+
+        - name: Ensure NetworkManager is started
+          service:
+            name: NetworkManager
+            state: started
+          register: nm_service_result
+
+        - name: Debug - List devices managed by NetworkManager
+          shell: |
+            set -euo pipefail
+            nmcli --fields all device status
+            for dev in $(nmcli --fields DEVICE -t -c no device status); do
+              echo "################### device: $dev ###################"
+              nmcli --fields all device show "$dev"
+              echo ""
+            done
+          changed_when: false
+
+        - name: Find the first interface with PCI devices that is managed by NetworkManager
+          shell: |
+            set -euo pipefail
+            for iface in {{ find_iface_paths.stdout_lines | map("quote") | join(" ") }}; do
+              # get the full real device path
+              full_path="$(readlink -f "$iface")"
+              # now, find the device with the matching GENERAL.UDI path in the nmcli output
+              for dev in $(nmcli --fields DEVICE -t -c no device status); do
+                # see if device is connected - state is 100
+                if [[ "$(nmcli -g GENERAL.STATE -e no device show "$dev")" =~ ^100($|\ ) ]]; then
+                  udi="$(nmcli -g GENERAL.UDI -e no device show "$dev")"
+                  full_udi="$(readlink -f "$udi")"
+                  if [ "$full_path" = "$full_udi" ]; then
+                    VID="$(sed 's/^0x//' < "$full_path/device/vendor")"
+                    PID="$(sed 's/^0x//' < "$full_path/device/device")"
+                    echo "$iface"
+                    echo "$VID:$PID"
+                    break 2
+                  fi
+                fi
+              done
+            done
+          register: pci_id_result
+          changed_when: false
+
+        - name: Add pci device ethernet controller
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              zone: internal
+              interface_pci_id: "{{ pci_id }}"
+              state: enabled
+              permanent: true
+
+        - name: Add pci device again
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              zone: internal
+              interface_pci_id: "{{ pci_id }}"
+              state: enabled
+
+        - name: Confirm changes were not made and short circuit is false
+          assert:
+            that:
+              - not firewall_lib_result is changed
+              - not firewall_lib_result.short_circuit
+
+        - name: Add pci device again with previous replaced
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - previous: replaced
+              - zone: internal
+                interface_pci_id: "{{ pci_id }}"
+                state: enabled
+
+        - name: Confirm changes were not made and short circuit is false
+          assert:
+            that:
+              - not firewall_lib_result is changed
+              - not firewall_lib_result.short_circuit
+
+        - name: Debug - get nftables ruleset after and show diff
+          shell: |
+            set -euo pipefail
+            nft list ruleset > {{ temp_dir.path }}/nft_after.txt || :
+            diff -u {{ temp_dir.path }}/nft_before.txt {{ temp_dir.path }}/nft_after.txt || :
+            rm -rf {{ temp_dir.path }}
+          changed_when: false
+          when: nftables_backend | bool
+
+        - name: Get nftable ruleset
+          command: nft list ruleset
+          register: nft_list
+          changed_when: false
+          when: nftables_backend | bool
+
+        - name: Assert that interface is in nftable ruleset
+          assert:
+            that:
+              - iface_path | basename in nft_list.stdout
+              - pci_id | trim not in nft_list.stdout
+          when: nftables_backend | bool
+
+        - name: Debug - get iptables ruleset after and show diff
+          shell: |
+            set -euo pipefail
+            iptables -S > {{ temp_dir.path }}/iptables_after.txt || :
+            diff -u {{ temp_dir.path }}/iptables_before.txt {{ temp_dir.path }}/iptables_after.txt || :
+            rm -rf {{ temp_dir.path }}
+          changed_when: false
+          when: not nftables_backend | bool
+
+        - name: Get iptables ruleset
+          command: iptables -S
+          register: ipt_list
+          changed_when: false
+          when: not nftables_backend | bool
+
+        - name: Assert that interface is in iptables ruleset
+          assert:
+            that:
+              - iface_path | basename in ipt_list.stdout
+              - pci_id | trim not in ipt_list.stdout
+          when: not nftables_backend | bool
+
+        - name: Remove interface from internal
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              zone: internal
+              interface_pci_id: "{{ pci_id }}"
+              state: disabled
+
+        - name: Confirm removal was made
+          assert:
+            that: firewall_lib_result is changed
+
+        - name: Debug0
+          debug:
+            msg: diff {{ firewall_lib_result.diff | to_nice_json }}
+
+        - name: Remove interface from internal again
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              zone: internal
+              interface_pci_id: "{{ pci_id }}"
+              state: disabled
+
+        - name: Confirm no removal changes were made
+          assert:
+            that:
+              - not firewall_lib_result is changed
+              - not firewall_lib_result.short_circuit
+
+        - name: Remove interface from internal with previous replaced
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - previous: replaced
+              - zone: internal
+                interface_pci_id: "{{ pci_id }}"
+                state: disabled
+
+        - name: Debug1
+          debug:
+            msg: diff {{ firewall_lib_result.diff | to_nice_json }}
+
+        - name: Confirm no removal changes were made with previous replaced
+          assert:
+            that:
+              - not firewall_lib_result is changed
+              - not firewall_lib_result.short_circuit
+
+      always:
+        - name: Remove temporary directory
+          file:
+            path: "{{ temp_dir.path }}"
+            state: absent
+          when: temp_dir.path is defined
+
+        - name: Stop NetworkManager if it was not started by the test
+          service:
+            name: NetworkManager
+            state: stopped
+          when:
+            - nm_service_result is defined
+            - nm_service_result is changed
+
+        - name: Remove NetworkManager if it was not installed by the test
+          package:
+            name: NetworkManager
+            state: absent
+          when:
+            - not __firewall_is_ostree
+            - nm_package_result is defined
+            - nm_package_result is changed
+
+        - name: Cleanup
+          tags:
+            - tests::cleanup
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - previous: replaced

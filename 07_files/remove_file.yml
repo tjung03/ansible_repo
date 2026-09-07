@@ -1,0 +1,9 @@
+---
+- name: 0) file module 사용하기
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: 1) /home/devops/users.txt 파일 삭제하기
+      ansible.builtin.file:
+        path: /home/devops/users.txt
+        state: absent

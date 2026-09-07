@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+---
+# loginuid immutable cannot be cleared at runtime; see auditctl(8) and
+# auditd_loginuid_immutable in README.md.
+- name: Initialize exported reboot requirement flag
+  ansible.builtin.set_fact:
+    auditd_reboot_required: false
+
+- name: Detect kernel loginuid immutable state from captured auditctl status
+  ansible.builtin.set_fact:
+    __auditd_loginuid_kernel_locked: >-
+      {{
+        false if auditd_auditctl_settings_previous.rc != 0
+        else (
+          (auditd_auditctl_settings_previous.stdout_lines | default([])
+          | select('match', '^loginuid_immutable 1') | list | length) > 0
+        )
+      }}
+
+- name: Reboot to clear loginuid immutable before applying configuration
+  ansible.builtin.reboot:
+  when:
+    - __auditd_loginuid_kernel_locked | bool
+    - not (auditd_loginuid_immutable | bool)
+    - auditd_reboot_ok | bool
+
+- name: Record that a reboot is required to clear loginuid immutable
+  ansible.builtin.set_fact:
+    auditd_reboot_required: true
+  when:
+    - __auditd_loginuid_kernel_locked | bool
+    - not (auditd_loginuid_immutable | bool)
+    - not (auditd_reboot_ok | bool)

@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Ensure that basic features of role work correctly
+  hosts: all
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        __sr_public: true
+
+    - name: Print units facts
+      debug:
+        msg: "{{ systemd_units }}"
+
+    - name: Check that unit state object has required fields
+      assert:
+        that:
+          - >-
+            ansible_facts["systemd_units"]
+            ["sshd.service"]
+            ["name"] == "sshd.service"
+          - >-
+            ansible_facts["systemd_units"]
+            ["sshd.service"]
+            ["active_state"] == "active"
+
+          - >-
+            ansible_facts["systemd_units"]
+            ["sshd.service"]
+            ["sub_state"] == "running"
+
+          - >-
+            ansible_facts["systemd_units"]
+            ["sshd.service"]
+            ["load_state"] == "loaded"
+
+          - >-
+            ansible_facts["systemd_units"]
+            ["sshd.service"]
+            ["description"] | length > 0

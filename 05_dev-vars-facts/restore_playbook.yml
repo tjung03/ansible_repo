@@ -1,0 +1,23 @@
+---
+- name: Restore playbook.yml
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: 1) 방화벽 서비스 제거 - {{ ansible_local.custom.general.fwsvc }}
+      ansible.posix.firewalld:
+        service: "{{ ansible_local.custom.general.fwsvc }}"
+        permanent: true
+        immediate: true
+        state: disabled
+
+    - name: 2) 서비스 종료 - {{ ansible_local.custom.general.service }}
+      ansible.builtin.service:
+        name: "{{ ansible_local.custom.general.service }}"
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: 3) 패키지 삭제 - {{ ansible_local.custom.general.package }}
+      ansible.builtin.dnf:
+        name: "{{ ansible_local.custom.general.package }}"
+        state: absent

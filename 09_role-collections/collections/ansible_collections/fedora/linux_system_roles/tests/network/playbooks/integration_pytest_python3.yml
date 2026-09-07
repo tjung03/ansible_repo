@@ -1,0 +1,75 @@
+# SPDX-License-Identifier: BSD-3-Clause
+---
+- name: Install dependencies for integration tests
+  hosts: all
+  vars:
+    rpmdependencies:
+      - python3-pytest
+
+  tasks:
+    - name: Install rpm dependencies
+      package:
+        state: present
+        name: "{{ rpmdependencies }}"
+        use: "{{ (__network_is_ostree | d(false)) | ternary('ansible.posix.rhel_rpm_ostree', omit) }}"
+
+# Import needed in order to install initscripts dependencies on the remote
+# system.
+- name: Import the playbook '../tests_default_initscripts.yml'
+  import_playbook: "../tests_default_initscripts.yml"
+
+# Import needed in order to install Network Manager dependencies on the remote
+# system.
+- name: Import the playbook '../tests_default_nm.yml'
+  import_playbook: "../tests_default_nm.yml"
+
+
+- name: Run Pytest tests
+  hosts: all
+  tasks:
+    - name: Run Pytest tests
+      block:
+        - name: Copy python files to the remote system
+          include_tasks: ../tasks/setup_remote_pytest.yml
+
+        - name: Run pytest with nm provider
+          block:
+            - name: Run pytest with nm
+              command: pytest-3 {{ _rundir.path }}/integration/ --provider=nm
+              environment:
+                PYTHONPATH: "{{ _lsr_python_path }}"
+              register: playbook_run
+              changed_when: false
+          always:
+            - name: Debug stdout_lines of the running playbook with nm
+              debug:
+                var: playbook_run.stdout_lines
+
+        - name: Run pytest with initscripts provider
+          block:
+            - name: Install network-scripts when running pytest with initscripts
+              package:
+                name: network-scripts
+                state: present
+                use: "{{ (__network_is_ostree | d(false)) | ternary('ansible.posix.rhel_rpm_ostree', omit) }}"
+            - name: Run pytest with initscripts
+              command: pytest-3 {{ _rundir.path }}/integration/ --provider=initscripts
+              environment:
+                PYTHONPATH: "{{ _lsr_python_path }}"
+              register: playbook_run
+              changed_when: false
+          always:
+            - name: Debug stdout_lines of the running playbook with initscripts
+              debug:
+                var: playbook_run.stdout_lines
+      always:
+        - name: Remove local tar file
+          file:
+            state: absent
+            path: "{{ temptar.path }}"
+          delegate_to: localhost
+
+        - name: Remove tempdir
+          file:
+            state: absent
+            path: "{{ _rundir.path }}"

@@ -1,0 +1,77 @@
+---
+- name: Test create disk and remove
+  hosts: all
+  become: true
+  vars:
+    storage_safe_mode: false
+    pv_size: '8g'
+    __storage_max_return: 1
+    __storage_min_size: "10g"
+  tags:
+    - tests::lvm
+
+  tasks:
+    - name: Storage test setup
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: Test
+      block:
+
+        - name: Create PV with a space to grow
+          command: >-
+            timeout 30s pvcreate -vvv -y --setphysicalvolumesize
+            {{ pv_size | quote }} /dev/{{ unused_disks[0] | quote }}
+          register: pvcreate_output
+          changed_when: pvcreate_output.rc != 0
+
+        # VG has to be present, the role otherwise automatically reformats empty PV,
+        # taking all available space
+        - name: Create VG
+          command: "vgcreate foo /dev/{{ unused_disks[0] }}"
+          register: vgcreate_output
+          changed_when: vgcreate_output.rc != 0
+
+        - name: Create LVM
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            storage_pools:
+              - name: foo
+                disks: "{{ unused_disks }}"
+                grow_to_fill: true
+                state: present
+                volumes:
+                  - name: test1
+                    size: 100%
+
+        - name: Verify role results
+          include_tasks: verify-role-results.yml
+
+        - name: Rerun the task to verify idempotence
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            storage_pools:
+              - name: foo
+                disks: "{{ unused_disks }}"
+                grow_to_fill: true
+                state: present
+                volumes:
+                  - name: test1
+                    size: 100%
+
+        - name: Verify role results - 2
+          include_tasks: verify-role-results.yml
+
+      always:
+
+        - name: Remove 'foo' pool created above
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            storage_pools:
+              - name: foo
+                disks: "{{ unused_disks }}"
+                state: "absent"
+                volumes:
+                  - name: test1
+
+        - name: Verify role results - 3
+          include_tasks: verify-role-results.yml

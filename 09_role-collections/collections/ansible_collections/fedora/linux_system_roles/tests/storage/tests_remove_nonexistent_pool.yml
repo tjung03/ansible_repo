@@ -1,0 +1,43 @@
+---
+- name: Test remove nonexistent pool
+  hosts: all
+  become: true
+  vars:
+    storage_safe_mode: false
+    storage_use_partitions: true
+    mount_location1: '/opt/test1'
+    storage_test_skip_fingerprint: true
+    __storage_max_return: 1
+  tags:
+    - tests::lvm
+
+# This tests the issue when removing nonexistent pool (with listed volumes)
+# caused crash
+  tasks:
+    - name: Prep storage role and discover unused disks
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: Removing nonexistent pool (with listed volumes)
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            state: absent
+            volumes:
+              - name: test1
+                mount_point: '/opt/test1'
+
+    - name: Verify role results
+      include_tasks: verify-role-results.yml
+
+    - name: Removing nonexistent pool
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            state: absent
+
+    - name: Verify role results - 2
+      include_tasks: verify-role-results.yml

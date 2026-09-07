@@ -1,0 +1,22 @@
+---
+# Task
+# 방화벽 패키지 설치 및 서비스 기동, 포트 등록 - import_tasks
+- name: 1-fw-1) 패키지 설치 - {{ pkg_fw }}
+  ansible.builtin.dnf:
+    name: "{{ pkg_fw }}"
+    state: present
+
+- name: 1-fw-2) 서비스 기동 - {{ svc_fw }}
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: "{{ svc_fw }}"
+
+- name: 1-fw-3) 포트 등록 - {{ pt_opens }}
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ pt_opens }}"

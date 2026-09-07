@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: BSD-3-Clause
+---
+- name: Get connection profile for '{{ interface }}'
+  shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      connection="$(nmcli -g GENERAL.CONNECTION device show {{ interface | quote }})" || :
+      if [ -z "$connection" ]; then
+        nmcli device connect {{ interface | quote }} 1>&2
+      fi
+      nmcli -g GENERAL.CONNECTION device show {{ interface | quote }}
+  register: connection_name
+  changed_when: false
+
+- name: Debug
+  shell: |
+    set -x
+    exec 1>&2
+    systemctl status NetworkManager || :
+    nmcli || :
+    nmcli device status || :
+    nmcli device show || :
+    nmcli connection show || :
+    nmcli connection show '{{ interface }}' || :
+    ip a
+    echo connection_name: {{ connection_name | to_nice_json | quote }} || :
+    ls -alrtF /etc/sysconfig/network-scripts || :
+    for file in /etc/sysconfig/network-scripts/ifcfg-*; do
+      if [ -f "$file" ]; then
+        echo "file: $file"
+        cat "$file" || :
+      fi
+    done
+    cat /etc/NetworkManager/NetworkManager.conf || :
+    find /etc/NetworkManager -type f -ls || :
+    for file in /etc/NetworkManager/system-connections/*.nmconnection; do
+      if [ -f "$file" ]; then
+        echo "file: $file"
+        cat "$file" || :
+      fi
+    done
+    for file in /etc/NetworkManager/conf.d/*; do
+      if [ -f "$file" ]; then
+        echo "file: $file"
+        cat "$file" || :
+      fi
+    done
+    find /usr/lib/NetworkManager -type f -ls || :
+    for file in /usr/lib/NetworkManager/conf.d/*; do
+      if [ -f "$file" ]; then
+        echo "file: $file"
+        cat "$file" || :
+      fi
+    done
+    NetworkManager --print-config
+    journalctl -u NetworkManager || :
+  changed_when: false
+  when: connection_name is failed or connection_name.stdout | length == 0
+  failed_when: connection_name is failed or connection_name.stdout | length == 0
+
+- name: Bring down and delete the connection profile for '{{ interface }}'
+  include_tasks: run_role_with_clear_facts.yml
+  vars:
+    network_connections:
+      - name: "{{ connection_name.stdout }}"
+        persistent_state: absent
+        state: down

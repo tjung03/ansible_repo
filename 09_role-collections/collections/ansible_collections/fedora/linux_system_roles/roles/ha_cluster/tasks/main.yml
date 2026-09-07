@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: MIT
+---
+
+# Gather initial facts and include platform/version specific variables.
+# These are package independent facts.
+- name: Set platform/version specific variables
+  ansible.builtin.include_tasks:
+    file: shell_common/include_vars.yml
+
+# Installs essential packages before package dependent facts.
+- name: Install essential packages
+  ansible.builtin.include_tasks:
+    file: shell_common/install_essential_packages.yml
+
+# Prepare package dependent facts after packages were installed.
+- name: Check and prepare role variables
+  ansible.builtin.include_tasks:
+    file: shell_{{ ha_cluster_pacemaker_shell }}/prepare_vars.yml
+  when:
+    - ha_cluster_cluster_present is not none or ha_cluster_qnetd is not none
+
+# Preconfigure hosts before cluster configuration.
+- name: Preconfigure hosts
+  ansible.builtin.include_tasks:
+    file: shell_{{ ha_cluster_pacemaker_shell }}/preconfigure_hosts.yml
+  when:
+    - ha_cluster_cluster_present is not none or ha_cluster_qnetd is not none
+    - __ha_cluster_is_booted | bool
+
+# Install cluster packages, when cluster needs to be configured.
+- name: Install cluster packages
+  when: ha_cluster_cluster_present | bool
+  ansible.builtin.package:
+    name: "{{ __ha_cluster_fullstack_node_packages + __ha_cluster_qdevice_in_use | ternary(__ha_cluster_qdevice_node_packages, []) + ha_cluster_sbd_enabled | ternary(__ha_cluster_sbd_packages, []) + ha_cluster_install_cloud_agents | ternary(__ha_cluster_cloud_agents_packages[ansible_facts['architecture']] | d(__ha_cluster_cloud_agents_packages['noarch'] | d([])), []) + ha_cluster_fence_agent_packages }}"
+    state: "{{ 'latest' if ha_cluster_use_latest_packages else 'present' }}"
+    use: "{{ (__ha_cluster_is_ostree | d(false)) | ternary('ansible.posix.rhel_rpm_ostree', omit) }}"
+
+- name: Configure cluster
+  ansible.builtin.include_tasks:
+    file: shell_{{ ha_cluster_pacemaker_shell }}/cluster-setup.yml
+  when:
+    - ha_cluster_cluster_present | bool
+    - __ha_cluster_is_booted | bool
+
+- name: Remove cluster configuration
+  when:
+    - ha_cluster_cluster_present is not none
+    - not ha_cluster_cluster_present
+    - __ha_cluster_is_booted | bool
+  block:
+    - name: Remove cluster configuration
+      ansible.builtin.include_tasks:
+        file: shell_{{ ha_cluster_pacemaker_shell }}/cluster-destroy.yml
+
+    - name: Remove fence-virt authkey
+      ansible.builtin.file:
+        path: /etc/cluster/fence_xvm.key
+        state: absent
+
+- name: Configure qnetd
+  ansible.builtin.include_tasks:
+    file: shell_{{ ha_cluster_pacemaker_shell }}/qnetd.yml
+  when: ha_cluster_qnetd is not none
+
+- name: Export configuration
+  when:
+    - ha_cluster_export_configuration | bool
+    - ha_cluster_pacemaker_shell == "pcs"
+    - __ha_cluster_is_booted | bool
+  block:
+    - name: Fetch configuration
+      fedora.linux_system_roles.ha_cluster_info:
+      register: __ha_cluster_info
+
+    - name: Set configuration fact
+      ansible.builtin.set_fact:
+        ha_cluster_facts: "{{ __ha_cluster_info.ha_cluster }}"
+
+- name: Record role success fingerprint
+  fedora.linux_system_roles.sr_fingerprint:
+    sr_message: >-
+      success system_role:ha_cluster ansible_version={{ ansible_version.full }}
+      {{ ansible_facts['distribution'] }}-{{ ansible_facts['distribution_version'] }}

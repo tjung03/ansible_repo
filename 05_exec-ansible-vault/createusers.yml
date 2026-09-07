@@ -1,0 +1,15 @@
+---
+- name: 0) 사용자 생성 - secret 테스트
+  hosts: devservers
+  vars_files:
+    - vars/secret.yml
+  tasks:
+    #########################################
+    # * 사용자 생성 (useradd user01)
+    # * 사용자 암호 설정 (passwd user01)
+    #########################################
+    - name: 1) 사용자 추가
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        password: "{{ item.pw | password_hash('sha512') }}"
+      loop: "{{ newusers }}"

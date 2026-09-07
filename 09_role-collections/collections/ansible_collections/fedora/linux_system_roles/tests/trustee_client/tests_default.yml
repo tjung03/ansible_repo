@@ -1,0 +1,126 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Ensure that the role runs with default parameters
+  hosts: all
+  vars:
+    trustee_client_trustee_gc: true
+    trustee_client_encrypt_disk: false
+  tasks:
+    - name: See if /dev/log exists for the fingerprint check
+      ansible.builtin.stat:
+        path: /dev/log
+      register: __register_dev_log
+
+    - name: Set the start time for the journal search
+      ansible.builtin.set_fact:
+        __journal_start_time: "{{ ansible_facts['date_time']['date'] ~ ' ' ~ ansible_facts['date_time']['time'] }}"
+      when: __register_dev_log.stat.exists
+
+    - name: Run the tests
+      block:
+        - name: Run the role
+          ansible.builtin.include_tasks:
+            file: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+
+        - name: Check system journal contains role fingerprints
+          ansible.builtin.shell:
+            executable: /bin/bash
+            cmd: >-
+              set -eo pipefail;
+              journalctl --since "{{ __journal_start_time }}" --no-pager |
+              grep -v " Invoked with" | grep "sr_fingerprint.*begin system_role:trustee_client" ||
+              { echo ERROR: BEGIN fingerprint not found; exit 1; };
+              journalctl --since "{{ __journal_start_time }}" --no-pager |
+              grep -v " Invoked with" | grep "sr_fingerprint.*success system_role:trustee_client" ||
+              { echo ERROR: SUCCESS fingerprint not found; exit 1; }
+          changed_when: false
+          when: __register_dev_log.stat.exists
+
+        - name: Flush handlers to start services created by the role
+          ansible.builtin.meta: flush_handlers
+
+        - name: Collect package facts
+          package_facts:
+            manager: auto
+          no_log: true
+
+        - name: Assert required packages are installed
+          assert:
+            that:
+              - item in ansible_facts.packages
+            fail_msg: "Required package '{{ item }}' is not installed"
+          loop: "{{ __trustee_client_trustee_gc_packages }}"
+
+        - name: Stat the quadlet install directory
+          stat:
+            path: "{{ __trustee_client_quadlet_install_dir }}"
+          register: __test_quadlet_dir
+
+        - name: Assert quadlet install directory exists
+          assert:
+            that:
+              - __test_quadlet_dir.stat.exists
+              - __test_quadlet_dir.stat.isdir
+            fail_msg: >-
+              Quadlet install directory {{ __trustee_client_quadlet_install_dir }}
+              does not exist
+
+        - name: Find deployed quadlet files
+          find:
+            paths: "{{ __trustee_client_quadlet_install_dir }}"
+            patterns:
+              - "*.container"
+              - "*.volume"
+              - "*.network"
+              - "*.kube"
+              - "*.pod"
+          register: __test_quadlet_files
+
+        - name: Assert quadlet files were deployed
+          assert:
+            that:
+              - __test_quadlet_files.files | length > 0
+            fail_msg: >-
+              No quadlet files found in {{ __trustee_client_quadlet_install_dir }}
+
+        - name: Stat the trustee-gc config directory
+          stat:
+            path: /etc/trustee-gc
+          register: __test_trustee_gc_dir
+
+        - name: Assert trustee-gc config directory exists
+          assert:
+            that:
+              - __test_trustee_gc_dir.stat.exists
+              - __test_trustee_gc_dir.stat.isdir
+            fail_msg: "Trustee GC config directory /etc/trustee-gc does not exist"
+
+        - name: Find trustee pod file
+          find:
+            paths: "{{ __trustee_client_quadlet_install_dir }}"
+            patterns: "*.pod"
+            recurse: false
+          register: __test_trustee_pod_files
+
+        - name: Assert trustee pod file exists
+          assert:
+            that: __test_trustee_pod_files.matched | int > 0
+            fail_msg: "No trustee pod file found in {{ __trustee_client_quadlet_install_dir }}"
+
+        - name: Set trustee pod service name
+          ansible.builtin.set_fact:
+            __test_trustee_pod_service: "{{ (__test_trustee_pod_files.files[0].path | basename) | replace('.pod', '') }}-pod"
+
+        - name: Assert trustee pod service is running
+          ansible.builtin.service:
+            name: "{{ __test_trustee_pod_service }}"
+            state: started
+          check_mode: true
+      always:
+        - name: Cleanup trustee_client test resources
+          ansible.builtin.include_tasks:
+            file: tasks/cleanup.yml
+          tags:
+            - tests::cleanup

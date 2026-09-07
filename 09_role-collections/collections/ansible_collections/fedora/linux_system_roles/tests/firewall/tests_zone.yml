@@ -1,0 +1,254 @@
+---
+- name: Test firewalld zones
+  hosts: all
+  become: true
+  tasks:
+    - name: Set condition for zone tests
+      set_fact:
+        __run_zone_tests: >-
+          {{ ansible_facts["distribution"] == "Fedora" or
+             ((ansible_facts["distribution"] == "CentOS" or ansible_facts["distribution"] == "RedHat")
+             and ansible_facts["distribution_major_version"] | int >= 7) }}
+
+    - name: Test firewalld zones
+      when: __run_zone_tests
+      block:
+
+      # INIT TEST
+
+        - name: Verify used firewalld zones
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - zone: 'internal'
+                state: 'enabled'
+              - zone: 'external'
+                state: 'enabled'
+              - zone: 'trusted'
+                state: 'enabled'
+
+        - name: Fail on missing zones
+          fail:
+            msg: "Required zones do not exist"
+          when: firewall_lib_result is changed # noqa no-handler
+
+      # ENSURE STATE
+
+        - name: Setup firewalld to see changes in check mode
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - previous: replaced
+              - zone: 'internal'
+                service: ['tftp', 'ftp']
+                port: ['443/tcp', '443/udp']
+                forward_port: ['447/tcp;;1.2.3.4', '448/tcp;;1.2.3.5']
+                state: 'enabled'
+              - zone: 'internal'
+                service: ['tftp', 'ftp']
+                port: ['443/tcp', '443/udp']
+                forward_port: ['447/tcp;;1.2.3.4', '448/tcp;;1.2.3.5']
+                state: 'enabled'
+              - zone: customzone
+                state: present
+              - zone: customzone
+                masquerade: true
+                state: enabled
+              - set_default_zone: dmz
+                state: enabled
+              - service: http
+                state: enabled
+              - ipset: customipset-ipv4
+                ipset_type: "hash:ip"
+                ipset_entries:
+                  - 127.0.0.1
+                  - 8.8.8.8
+                short: Custom
+                description: Custom IPSet for testing purposes
+                state: present
+              - ipset: customipset-ipv6
+                ipset_type: "hash:ip"
+                ipset_entries:
+                  - 2001:4860:4860::8844
+                short: Custom
+                description: Custom IPSet for testing purposes
+                state: present
+              - zone: public
+                service: ["imaps", "kubelet"]
+                permanent: "{{ not (__firewall_is_booted | d(true)) }}"
+                runtime: "{{ __firewall_is_booted | d(true) }}"
+                state: enabled
+            __firewall_test_check_mode: true
+          when: not __bootc_validation | d(false)
+
+        - name: Setup firewalld
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - previous: replaced
+              - zone: 'internal'
+                service: ['tftp', 'ftp']
+                port: ['443/tcp', '443/udp']
+                forward_port: ['447/tcp;;1.2.3.4', '448/tcp;;1.2.3.5']
+                state: 'enabled'
+              - zone: 'internal'
+                service: ['tftp', 'ftp']
+                port: ['443/tcp', '443/udp']
+                forward_port: ['447/tcp;;1.2.3.4', '448/tcp;;1.2.3.5']
+                state: 'enabled'
+              - zone: customzone
+                state: present
+              - zone: customzone
+                masquerade: true
+                state: enabled
+              - set_default_zone: dmz
+                state: enabled
+              - service: http
+                state: enabled
+              - ipset: customipset-ipv4
+                ipset_type: "hash:ip"
+                ipset_entries:
+                  - 127.0.0.1
+                  - 8.8.8.8
+                short: Custom
+                description: Custom IPSet for testing purposes
+                state: present
+              - ipset: customipset-ipv6
+                ipset_type: "hash:ip"
+                ipset_entries:
+                  - 2001:4860:4860::8844
+                short: Custom
+                description: Custom IPSet for testing purposes
+                state: present
+          when: not __bootc_validation | d(false)
+
+        - name: Fail if no changes are done
+          fail:
+            msg: "FAILED"
+          when:
+            - not __bootc_validation | d(false)
+            - not firewall_lib_result is changed
+
+      # ENSURE STATE AGAIN
+
+        - name: Setup firewalld again
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - previous: replaced
+              - zone: 'internal'
+                service: ['tftp', 'ftp']
+                port: ['443/tcp', '443/udp']
+                forward_port: ['447/tcp;;1.2.3.4', '448/tcp;;1.2.3.5']
+                state: 'enabled'
+              - zone: 'internal'
+                service: ['tftp', 'ftp']
+                port: ['443/tcp', '443/udp']
+                forward_port: ['447/tcp;;1.2.3.4', '448/tcp;;1.2.3.5']
+                state: 'enabled'
+              - zone: customzone
+                state: present
+              - zone: customzone
+                masquerade: true
+                state: enabled
+              - set_default_zone: dmz
+                state: enabled
+              - service: http
+                state: enabled
+              - ipset: customipset-ipv4
+                ipset_type: "hash:ip"
+                ipset_entries:
+                  - 127.0.0.1
+                  - 8.8.8.8
+                short: Custom
+                description: Custom IPSet for testing purposes
+                state: present
+              - ipset: customipset-ipv6
+                ipset_type: "hash:ip"
+                ipset_entries:
+                  - 2001:4860:4860::8844
+                short: Custom
+                description: Custom IPSet for testing purposes
+                state: present
+          when: not __bootc_validation | d(false)
+
+        - name: Fail on newly changes
+          fail:
+            msg: "FAILED"
+          when:
+            - not __bootc_validation | d(false)
+            - firewall_lib_result is changed # noqa no-handler
+
+        - name: Create QEMU deployment during bootc end-to-end test
+          delegate_to: localhost
+          become: false
+          command: "{{ lsr_scriptdir }}/bootc-buildah-qcow.sh {{ ansible_host }}"
+          changed_when: true
+          when: ansible_connection == "buildah"
+
+      # VERIFY
+
+        - name: Verify firewalld zone internal services
+          command: firewall-offline-cmd --zone=internal --list-services
+          register: result
+          changed_when: false
+          failed_when: result.failed or "tftp" not in result.stdout or "ftp" not in result.stdout
+
+        - name: Verify firewalld zone internal ports
+          command: firewall-offline-cmd --zone=internal --list-ports
+          register: result
+          changed_when: false
+          failed_when: result.failed or "443/tcp" not in result.stdout or "443/udp" not in result.stdout
+
+        - name: Verify firewalld zone internal forward ports
+          command: firewall-offline-cmd --zone=internal --list-forward-ports
+          register: result
+          changed_when: false
+          failed_when: result.failed or "port=447:proto=tcp:toport=:toaddr=1.2.3.4" not in result.stdout or "port=448:proto=tcp:toport=:toaddr=1.2.3.5" not in result.stdout
+
+        - name: Verify custom zone has masquerade added to it
+          command: firewall-offline-cmd --zone=customzone --query-masquerade
+          register: result
+          changed_when: false
+          failed_when: result is failed or "yes" not in result.stdout
+
+        - name: Verify custom zone has masquerade added to it
+          command: firewall-offline-cmd --get-default-zone
+          register: result
+          changed_when: false
+          failed_when: result is failed or "dmz" not in result.stdout
+
+        - name: Verify that service http has been added to the default zone dmz
+          command: firewall-offline-cmd --zone=dmz --query-service=http
+          register: result
+          changed_when: false
+          failed_when: result is failed or "yes" not in result.stdout
+
+        - name: Fail if ipsets not added
+          shell:
+            executable: /bin/bash
+            cmd: |
+              set -euo pipefail
+              firewall-offline-cmd --get-ipsets | grep {{ item | quote }}
+          loop:
+            - customipset-ipv4
+            - customipset-ipv6
+          changed_when: false
+
+        - name: Fail if entry not added to ipset
+          command: firewall-offline-cmd --ipset {{ item.name | quote }} --query-entry {{ item.entry | quote }}
+          loop:
+            - name: customipset-ipv4
+              entry: 8.8.8.8
+            - name: customipset-ipv6
+              entry: 2001:4860:4860::8844
+          changed_when: false
+
+      always:
+        - name: Cleanup
+          tags:
+            - tests::cleanup
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            firewall:
+              - previous: replaced

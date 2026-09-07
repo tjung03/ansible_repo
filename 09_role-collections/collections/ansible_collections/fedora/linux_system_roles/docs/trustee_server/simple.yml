@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Deploy Trustee Server Components using Podman Quadlets from GitHub repository
+  hosts: all
+  vars:
+    trustee_server_trustee: true
+    trustee_server_secret_registration_enabled: false
+  roles:
+    - fedora.linux_system_roles.trustee_server

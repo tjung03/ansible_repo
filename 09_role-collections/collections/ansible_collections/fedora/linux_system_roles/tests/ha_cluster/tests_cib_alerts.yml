@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Configure alerts
+  hosts: all
+  vars_files: vars/main.yml
+
+  tasks:
+    - name: Run test
+      tags:
+        - tests::booted
+        - tests::verify
+      block:
+        - name: Skip test in bootc mode
+          include_tasks: tasks/skip_if_bootc.yml
+
+        - name: Set up test environment
+          include_role:
+            name: fedora.linux_system_roles.ha_cluster
+            tasks_from: test_setup.yml
+
+        - name: Run HA Cluster role
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            ha_cluster_cluster_name: test-cluster
+            ha_cluster_manage_firewall: true
+            ha_cluster_manage_selinux: true
+            ha_cluster_alerts:
+              - id: alert1
+                description: Alert1 description
+                path: /path/to/somewhere
+                instance_attrs:
+                  - attrs:
+                      - name: debug
+                        value: "false"
+                meta_attrs:
+                  - attrs:
+                      - name: timeout
+                        value: 15s
+                recipients:
+                  - id: recipient1
+                    description: Recipient1 description
+                    value: recipient-value
+                    instance_attrs:
+                      - attrs:
+                          - name: debug
+                            value: "true"
+                    meta_attrs:
+                      - attrs:
+                          - name: timeout
+                            value: 20s
+
+        - name: Fetch versions of cluster components
+          include_tasks: tasks/fetch_versions.yml
+
+        - name: Verify alerts
+          when:
+            - '"pcmk.alert.config.output-formats" not in __test_pcs_capabilities'
+          vars:
+            __test_expected_lines:
+              - "Alerts:"
+              - " Alert: alert1 (path=/path/to/somewhere)"
+              - "  Description: Alert1 description"
+              - "  Options: debug=false"
+              - "  Meta options: timeout=15s"
+              - "  Recipients:"
+              - "   Recipient: recipient1 (value=recipient-value)"
+              - "    Description: Recipient1 description"
+              - "    Options: debug=true"
+              - "    Meta options: timeout=20s"
+          block:
+            - name: Fetch alerts configuration from the cluster
+              command:
+                cmd: pcs alert
+              register: _test_pcs_alerts_config
+              changed_when: false
+
+            - name: Print real alerts configuration
+              debug:
+                var: _test_pcs_alerts_config
+
+            - name: Print expected alerts configuration
+              debug:
+                var: __test_expected_lines | list
+
+            - name: Check alerts configuration
+              assert:
+                that:
+                  - _test_pcs_alerts_config.stdout_lines == __test_expected_lines | list
+
+        - name: Verify alerts
+          when:
+            - '"pcmk.alert.config.output-formats" in __test_pcs_capabilities'
+          vars:
+            __test_expected_lines: ' { "alerts": [ { "id": "alert1", "path": "/path/to/somewhere", "description": "Alert1 description", "recipients": [ { "id": "recipient1", "value": "recipient-value", "description": "Recipient1 description", "meta_attributes": [ { "id": "recipient1-meta_attributes", "options": {}, "rule": null, "nvpairs": [ { "id": "recipient1-meta_attributes-timeout", "name": "timeout", "value": "20s" } ] } ], "instance_attributes": [ { "id": "recipient1-instance_attributes", "options": {}, "rule": null, "nvpairs": [ { "id": "recipient1-instance_attributes-debug", "name": "debug", "value": "true" } ] } ] } ], "select": null, "meta_attributes": [ { "id": "alert1-meta_attributes", "options": {}, "rule": null, "nvpairs": [ { "id": "alert1-meta_attributes-timeout", "name": "timeout", "value": "15s" } ] } ], "instance_attributes": [ { "id": "alert1-instance_attributes", "options": {}, "rule": null, "nvpairs": [ { "id": "alert1-instance_attributes-debug", "name": "debug", "value": "false" } ] } ]
+              } ] }'
+          block:
+            - name: Fetch alerts configuration from the cluster
+              command:
+                cmd: pcs --output-format=json alert
+              register: _test_pcs_alerts_config
+              changed_when: false
+
+            - name: Print real alerts configuration
+              debug:
+                var: _test_pcs_alerts_config.stdout | from_json
+
+            - name: Print expected alerts configuration
+              debug:
+                var: __test_expected_lines | from_json
+
+            - name: Check alerts configuration
+              assert:
+                that:
+                  - _test_pcs_alerts_config.stdout | from_json == __test_expected_lines | from_json
+
+        - name: Check firewall and selinux state
+          include_tasks: tasks/check_firewall_selinux.yml

@@ -1,0 +1,45 @@
+---
+- name: Test cache volume fatal errors
+  hosts: all
+  become: true
+  vars:
+    storage_safe_mode: false
+    volume_group_size: '10g'
+    volume_size: '5g'
+    cache_size: '4g'
+    __storage_max_return: 2
+    __storage_disks_needed: 2
+    __storage_match_sector_size: true
+  tags:
+    - tests::lvm
+
+  tasks:
+    - name: Prep storage role and discover unused disks
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: Verify that creating a cached partition volume fails
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_params:
+          storage_pools:
+            - name: "{{ unused_disks[0] }}"
+              type: partition
+              disks: "{{ unused_disks }}"
+              volumes:
+                - name: test1
+                  type: partition
+                  cached: true
+
+    - name: Verify that creating cache on unused disk fails
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_params:
+          storage_pools:
+            - name: foo
+              disks: "{{ [unused_disks[0]] }}"
+              volumes:
+                - name: test1
+                  size: "{{ volume_size }}"
+                  cached: true
+                  cache_size: "{{ cache_size }}"
+                  cache_devices: "{{ [unused_disks[1]] }}"

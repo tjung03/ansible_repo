@@ -1,0 +1,13 @@
+---
+- name: 0) /etc/hosts 파일 설정
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: 1) /etc/hosts 파일 배포
+      # ./files/hosts -- copy --> 관리 대상 호스트(/etc/hosts)
+      ansible.builtin.copy:
+        src: files/hosts
+        dest: /etc/hosts
+        owner: root
+        group: root
+        mode: '0644'

@@ -1,0 +1,241 @@
+# SPDX-License-Identifier: MIT
+---
+# auditd_rules: dict entries rendered as single-line -a rules in custom.rules.j2
+- name: Assert auditd_rules is a list of dicts
+  ansible.builtin.assert:
+    that:
+      - auditd_rules is iterable
+      - auditd_rules is not string
+      - auditd_rules is not mapping
+      - auditd_rules | first is mapping
+    fail_msg: auditd_rules must be a non-empty list of dicts
+
+- name: Assert each auditd_rules entry has required action and filter
+  ansible.builtin.assert:
+    that:
+      - item.action is defined
+      - item.filter is defined
+      - item.action is string
+      - item.filter is string
+      - item.action in __auditd_rules_actions
+      - item.filter in __auditd_rules_filters
+    fail_msg: >-
+      Each auditd_rules entry must define string action (always, never) and
+      string filter (exclude, exit, filesystem, io_uring, task, user)
+  loop: "{{ auditd_rules }}"
+  loop_control:
+    label: "{{ item.action | default('missing action') }},{{ item.filter | default('missing filter') }}"
+
+- name: Assert auditd_rules entries use only supported keys
+  ansible.builtin.assert:
+    that:
+      - item.keys() | difference(__auditd_rules_allowed_keys) | length == 0
+    fail_msg: >-
+      auditd_rules entry has unsupported keys {{ (item.keys() | difference(__auditd_rules_allowed_keys)) | list }}.
+      Supported keys are {{ __auditd_rules_allowed_keys | sort | join(', ') }}.
+  loop: "{{ auditd_rules }}"
+  vars:
+    __auditd_rules_allowed_keys:
+      - action
+      - arch
+      - dir
+      - field
+      - filter
+      - keyname
+      - path
+      - permission
+      - syscall
+
+- name: Assert auditd_rules path and dir are mutually exclusive
+  ansible.builtin.assert:
+    that:
+      - not ((item.path is defined) and (item.dir is defined))
+    fail_msg: auditd_rules entry cannot set both path and dir
+  loop: "{{ auditd_rules }}"
+
+- name: Assert auditd_rules path or dir requires filter exit
+  ansible.builtin.assert:
+    that:
+      - item.filter == 'exit'
+    fail_msg: auditd_rules path and dir require filter type exit
+  loop: "{{ auditd_rules }}"
+  when: (item.path is defined) or (item.dir is defined)
+
+- name: Assert auditd_rules syscall requires valid filter type
+  ansible.builtin.assert:
+    that:
+      - item.filter in __valid_filters
+    fail_msg: auditd_rules syscall requires valid filter type {{ __valid_filters | join(', ') }}
+  loop: "{{ auditd_rules }}"
+  when: item.syscall is defined
+  vars:
+    __valid_filters: "{{ ['exit'] if ansible_facts['os_family'] == 'RedHat' and ansible_facts['distribution_major_version'] == '8' else ['exit', 'io_uring'] }}"
+
+- name: Assert auditd_rules field is a non-empty string or list of non-empty strings
+  ansible.builtin.assert:
+    that:
+      - item.field is fedora.linux_system_roles.auditd_non_empty_str_or_list
+    fail_msg: >-
+      item.field must be a non-empty string, or a non-empty list whose elements are each
+      non-empty strings
+  loop: "{{ auditd_rules }}"
+  when: item.field is defined
+
+- name: Assert auditd_rules filesystem filter includes fstype=debugfs or fstype=tracefs
+  ansible.builtin.assert:
+    that:
+      - item.field is defined
+      - >-
+        (
+          (__auditd_rule_field_list)
+          | select('match', __auditd_rules_filesystem_fstype_regex)
+          | list
+          | length
+        ) > 0
+    fail_msg: >-
+      auditd_rules entry with filter filesystem must define field with fstype=debugfs or fstype=tracefs
+  vars:
+    __auditd_rule_field_list: >-
+      {{
+        ([item.field] if (item.field is defined and item.field is string)
+        else (item.field | default([]) | list))
+      }}
+  loop: "{{ auditd_rules }}"
+  when: item.filter == 'filesystem'
+
+- name: Assert auditd_rules field fragments use a supported operator
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          ([item.field] if (item.field is defined and item.field is string)
+          else (item.field | default([]) | list))
+          | reject('match', __auditd_rules_field_operator_regex)
+          | list
+          | length
+        ) == 0
+    fail_msg: >-
+      auditd_rules field must be nameOPvalue where OP is one of =, !=, <, >, <=, >=, &, &=
+  loop: "{{ auditd_rules }}"
+  when: item.field is defined
+
+- name: Assert auditd_rules permission is a non-empty string or list of non-empty strings
+  ansible.builtin.assert:
+    that:
+      - item.permission is fedora.linux_system_roles.auditd_non_empty_str_or_list
+    fail_msg: >-
+      item.permission must be a non-empty string, or a non-empty list whose elements are each
+      non-empty strings
+  loop: "{{ auditd_rules }}"
+  when: item.permission is defined
+
+- name: Assert auditd_rules permission values are recognized
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          (__auditd_rule_perm_list | flatten)
+          | unique
+          | difference(__auditd_rules_permission_keys)
+          | list
+          | length
+        ) == 0
+    fail_msg: >-
+      auditd_rules permission(s) must be read, write, execute, attribute_change, or nowarn
+  vars:
+    __p_raw: "{{ item.permission }}"
+    __auditd_rule_perm_list: "{{ ([__p_raw] if (__p_raw is string) else (__p_raw | default([]) | list)) }}"
+  loop: "{{ auditd_rules }}"
+  when: item.permission is defined
+
+- name: Assert auditd_rules permission list does not mix nowarn with other values
+  ansible.builtin.assert:
+    that:
+      - not ( (__auditd_rule_perm_list | flatten | list | length > 1) and ('nowarn' in (__auditd_rule_perm_list | flatten | list)) )
+    fail_msg: auditd_rules permission nowarn cannot be combined with other permission values
+  vars:
+    __p_raw: "{{ item.permission }}"
+    __auditd_rule_perm_list: "{{ ([__p_raw] if (__p_raw is string) else (__p_raw | default([]) | list)) }}"
+  loop: "{{ auditd_rules }}"
+  when: item.permission is defined
+
+- name: Assert auditd_rules arch is a non-empty string or list of non-empty strings
+  ansible.builtin.assert:
+    that:
+      - item.arch is fedora.linux_system_roles.auditd_non_empty_str_or_list
+    fail_msg: >-
+      item.arch must be a non-empty string, or a non-empty list whose elements are each non-empty
+      strings
+  loop: "{{ auditd_rules }}"
+  when: item.arch is defined
+
+- name: Assert auditd_rules syscall is a number, non-empty string, or list of numbers and/or non-empty strings
+  ansible.builtin.assert:
+    that:
+      - item.syscall is fedora.linux_system_roles.auditd_scalar_or_mixed_list
+    fail_msg: >-
+      item.syscall must be a number, a non-empty string, or a non-empty list whose elements are
+      each a number and/or a non-empty string
+  loop: "{{ auditd_rules }}"
+  when: item.syscall is defined
+
+- name: Assert auditd_rules keyname is a non-empty string or list of non-empty strings
+  ansible.builtin.assert:
+    that:
+      - item.keyname is fedora.linux_system_roles.auditd_scalar_or_mixed_list
+    fail_msg: >-
+      When item.keyname is defined it must be a non-empty string, or a non-empty list whose
+      elements are each a non-empty string
+  loop: "{{ auditd_rules }}"
+  when: item.keyname is defined
+
+- name: Initialize keyname list for auditd_rules length check
+  ansible.builtin.set_fact:
+    __auditd_rules_keynames_to_check: []
+
+- name: Append auditd_rules keynames for length checks
+  ansible.builtin.set_fact:
+    __auditd_rules_keynames_to_check: "{{ __auditd_rules_keynames_to_check + __kn }}"
+  vars:
+    __kn: >-
+      {{
+        ([item.keyname | string] if (item.keyname is string or item.keyname is number)
+        else (item.keyname | map('string') | list))
+      }}
+  loop: "{{ auditd_rules }}"
+  when: item.keyname is defined
+
+- name: Assert each auditd_rules keyname is at most 31 characters
+  ansible.builtin.assert:
+    that:
+      - (item | string | length) <= 31
+    fail_msg: >-
+      auditd_rules keyname must be 31 characters or fewer (got length {{ item | string | length }})
+  loop: "{{ __auditd_rules_keynames_to_check | default([]) }}"
+
+- name: Warn when auditd_rules omits arch (not io_uring, not arch nowarn)
+  ansible.builtin.debug:
+    msg: >-
+      auditd_rules[{{ idx }}] ({{ item.action }},{{ item.filter }}): arch is omitted;
+      the rule applies to all syscall architectures (performance cost). Set arch, or use arch: nowarn
+      to silence this message.
+  loop: "{{ auditd_rules }}"
+  when:
+    - item.filter != 'io_uring'
+    - not (item.arch is defined and ( (item.arch is string and ((item.arch == 'nowarn') or (item.arch | trim | length > 0))) or (item.arch is iterable and item.arch is not string and item.arch | length > 0) ))
+  loop_control:
+    label: "{{ idx }},{{ item.action }},{{ item.filter }}"
+    index_var: idx
+
+- name: Warn when auditd_rules uses path or dir without permissions or syscalls
+  ansible.builtin.debug:
+    msg: >-
+      auditd_rules[{{ idx }}]: path or dir is set without permissions or syscalls; consider
+      setting permissions or permission: nowarn to silence this message.
+  loop: "{{ auditd_rules }}"
+  when:
+    - (item.path is defined) or (item.dir is defined)
+    - not (item.permission is defined or item.syscall is defined)
+  loop_control:
+    label: "{{ idx }},{{ item.action }},{{ item.filter }}"
+    index_var: idx

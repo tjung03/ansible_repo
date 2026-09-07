@@ -1,0 +1,7 @@
+---
+# defaults file for roles/myfirewall
+pkgs:
+ - firewalld
+
+svcs:
+  - firewalld

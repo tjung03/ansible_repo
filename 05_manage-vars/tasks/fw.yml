@@ -1,0 +1,10 @@
+---
+# Task
+- name: 방화벽 서비스 등록 - {{ fw_svcs }}
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ fw_svcs }}"
+  

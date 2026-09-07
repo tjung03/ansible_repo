@@ -1,0 +1,44 @@
+---
+- name: Ensure that the role runs with input file
+  hosts: all
+  tasks:
+    - name: Run test and clean up
+      block:
+        - name: Run postgresql role with input file
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            postgresql_input_file: simple.sql
+
+        - name: Flush handlers
+          meta: flush_handlers
+
+        - name: Get content of database
+          become: true
+          become_user: postgres
+          shell: |
+            set -euo pipefail
+            echo "SELECT * FROM mytable;" | psql
+          register: result
+          changed_when: false
+
+        - name: Check content of database
+          assert:
+            that: >
+              "1 row" in result.stdout
+
+      rescue:
+        - name: Expected to fail in non-booted systems, check error
+          assert:
+            that: '"postgresql_input_file option is only supported on booted hosts" in ansible_failed_result.msg'
+          when: not __postgresql_is_booted | bool
+
+        - name: Role must succeed on booted systems
+          fail:
+            msg: "Unexpected failure on booted system: {{ ansible_failed_result.msg }}"
+          when: __postgresql_is_booted | bool
+
+      always:
+        - name: Clean up
+          include_tasks: tasks/clean_instance.yml
+          tags: tests::cleanup

@@ -1,0 +1,147 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Configure stonith levels
+  hosts: all
+  vars_files: vars/main.yml
+
+  tasks:
+    - name: Find first node name
+      set_fact:
+        __test_first_node: "{{ (ansible_play_hosts_all | length == 1) | ternary('localhost', ansible_play_hosts[0]) }}"
+
+    - name: Run test
+      tags:
+        - tests::booted
+        - tests::verify
+      vars:
+        ha_cluster_stonith_levels:
+          - level: 1
+            target: "{{ __test_first_node }}"
+            resource_ids:
+              - fence1
+          - level: 2
+            target_pattern: node-\d+
+            resource_ids:
+              - fence2
+          - level: 3
+            target_attribute: some-name
+            resource_ids:
+              - fence1
+              - fence2
+          - level: 4
+            target_attribute: some-name
+            target_value: some-value
+            resource_ids:
+              - fence2
+              - fence1
+      block:
+        - name: Skip test in bootc mode
+          include_tasks: tasks/skip_if_bootc.yml
+
+        - name: Set up test environment
+          include_role:
+            name: fedora.linux_system_roles.ha_cluster
+            tasks_from: test_setup.yml
+
+        - name: Run HA Cluster role
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            ha_cluster_cluster_name: test-cluster
+            ha_cluster_manage_firewall: true
+            ha_cluster_manage_selinux: true
+            ha_cluster_export_configuration: true
+            ha_cluster_resource_primitives:
+              - id: fence1
+                agent: 'stonith:fence_kdump'
+              - id: fence2
+                agent: 'stonith:fence_kdump'
+
+        - name: Fetch versions of cluster components
+          include_tasks: tasks/fetch_versions.yml
+
+        - name: Verify stonith levels
+          when:
+            - '"pcmk.stonith.levels.config.output-formats" not in __test_pcs_capabilities'
+          vars:
+            __test_regexp_label: "{{ __test_pcs_version is version('0.10.10', '>') | ternary(' (regexp)', '') }}"
+            __test_expected_lines:
+              - "Target: {{ __test_first_node }}"
+              - "  Level 1 - fence1"
+              - "Target{{ __test_regexp_label }}: node-\\d+"
+              - "  Level 2 - fence2"
+              - "Target: some-name="
+              - "  Level 3 - fence1,fence2"
+              - "Target: some-name=some-value"
+              - "  Level 4 - fence2,fence1"
+          block:
+            - name: Fetch stonith levels configuration from the cluster
+              command:
+                cmd: pcs stonith level config
+              register: __test_pcs_stonith_level_config
+              changed_when: false
+
+            - name: Print real stonith levels configuration
+              debug:
+                var: __test_pcs_stonith_level_config.stdout_lines
+
+            - name: Print expected stonith levels configuration
+              debug:
+                var: __test_expected_lines | list
+
+            - name: Check stonith levels configuration
+              assert:
+                that:
+                  - __test_pcs_stonith_level_config.stdout_lines == __test_expected_lines | list
+
+        - name: Verify stonith levels
+          when:
+            - '"pcmk.stonith.levels.config.output-formats" in __test_pcs_capabilities'
+          vars:
+            __test_expected_lines: ' { "target_node": [ { "id": "fl-{{ __test_first_node }}-1", "target": "{{ __test_first_node }}", "index": 1, "devices": [ "fence1" ] } ], "target_regex": [ { "id": "fl-node-d-2", "target_pattern": "node-\\d+", "index": 2, "devices": [ "fence2" ] } ], "target_attribute": [ { "id": "fl-some-name-3", "target_attribute": "some-name", "target_value": "", "index": 3, "devices": [ "fence1", "fence2" ] }, { "id": "fl-some-name-4", "target_attribute": "some-name", "target_value": "some-value", "index": 4, "devices": [ "fence2", "fence1" ] } ] }'
+          block:
+            - name: Fetch stonith levels configuration from the cluster
+              command:
+                cmd: pcs --output-format=json stonith level config
+              register: __test_pcs_stonith_level_config
+              changed_when: false
+
+            - name: Print real stonith levels configuration
+              debug:
+                var: __test_pcs_stonith_level_config.stdout | from_json
+
+            - name: Print expected stonith levels configuration
+              debug:
+                var: __test_expected_lines | from_json
+
+            - name: Check stonith levels configuration
+              assert:
+                that:
+                  - __test_pcs_stonith_level_config.stdout | from_json == __test_expected_lines | from_json
+
+        - name: Check firewall and selinux state
+          include_tasks: tasks/check_firewall_selinux.yml
+
+        - name: Check exported stonith levels configuration
+          when:
+            - '"pcmk.stonith.levels.config.output-formats" in __test_pcs_capabilities'
+          vars:
+            __test_exported_config:
+              ha_cluster_stonith_levels: >-
+                {{ ha_cluster_facts.ha_cluster_stonith_levels }}
+            __test_expected_config:
+              ha_cluster_stonith_levels: >-
+                {{ ha_cluster_stonith_levels }}
+          block:
+            - name: Print exported stonith levels configuration
+              debug:
+                var: __test_exported_config
+
+            - name: Print expected stonith levels configuration
+              debug:
+                var: __test_expected_config
+
+            - name: Compare expected and exported stonith levels configuration
+              assert:
+                that:
+                  - __test_exported_config == __test_expected_config

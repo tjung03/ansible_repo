@@ -1,0 +1,294 @@
+# SPDX-License-Identifier: MIT
+---
+# Integration test: configure auditd and rules, verify files, then restore.
+- name: Integration test for basic config and rules
+  hosts: all
+  tasks:
+    - name: Exercise role and validate configuration
+      block:
+        - name: Back up existing auditd configuration and rules
+          ansible.builtin.include_tasks: tasks/setup.yml
+
+        - name: Set filter based on platform/version
+          ansible.builtin.set_fact:
+            __filter: "{{ 'exit' if ansible_facts['os_family'] == 'RedHat' and ansible_facts['distribution_major_version'] == '8' else 'io_uring' }}"
+
+        - name: Run auditd role with non-default settings
+          ansible.builtin.include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            auditd_log_format: RAW
+            auditd_flush: INCREMENTAL_ASYNC
+            auditd_freq: 55
+            auditd_max_log_file: 9
+            auditd_num_logs: 6
+            auditd_priority_boost: 5
+            auditd_name_format: USER
+            auditd_name: "test-node"
+            auditd_max_log_file_action: IGNORE
+            auditd_space_left: "80"
+            auditd_space_left_action: SYSLOG
+            auditd_verify_email: true
+            auditd_action_mail_acct: root
+            auditd_admin_space_left: "55"
+            auditd_admin_space_left_action: SYSLOG
+            auditd_disk_full_action: SYSLOG
+            auditd_disk_error_action: SYSLOG
+            auditd_report_interval: "1"
+            auditd_tcp_listen_port: 1024
+            auditd_tcp_listen_queue: 6
+            auditd_tcp_max_per_addr: 2
+            auditd_tcp_client_ports: 1024-65535
+            auditd_tcp_client_max_idle: 1
+            auditd_transport: TCP
+            auditd_krb5_principal: auditd
+            auditd_krb5_key_file: /etc/audit/audit.key
+            auditd_distribute_network: true
+            auditd_q_depth: 2001
+            auditd_overflow_action: SINGLE
+            auditd_max_restarts: 11
+            auditd_plugin_dir: /etc/audit/plugins.d
+            auditd_end_of_event_timeout: 2
+            auditd_buffer_size: 32769
+            auditd_fail_mode: 1
+            auditd_maximum_rate: 16777216
+            auditd_enable_flag: 1
+            auditd_backlog_wait_time: 60
+            auditd_rules:
+            # filesystem + fstype (field)
+              - action: never
+                filter: filesystem
+                field: fstype=debugfs
+                keyname: lsr_fs_dbg
+            # io_uring (no arch line)
+              - action: always
+                filter: "{{ __filter }}"
+                syscall:
+                  - openat
+                  - openat2
+                keyname: lsr_io_uring
+            # arch nowarn (no -F arch)
+              - action: always
+                filter: exit
+                arch: nowarn
+                syscall: open
+                keyname: lsr_arch_nw
+            # arch list -> one line per arch
+              - action: always
+                filter: exit
+                arch: [b32, b64]
+                syscall: read
+                keyname: lsr_arch_pair
+            # path + permission nowarn (no -F perm)
+              - action: always
+                filter: exit
+                arch: b64
+                syscall: open
+                path: /etc/hosts
+                permission: nowarn
+                keyname: lsr_path_nw
+            # dir + single permission string
+              - action: always
+                filter: exit
+                arch: b64
+                syscall: open
+                dir: /etc/ssh
+                permission: read
+                keyname: lsr_dir_one_perm
+            # dir + permission list
+              - action: always
+                filter: exit
+                arch: b64
+                syscall: openat
+                dir: /tmp
+                permission:
+                  - read
+                  - write
+                keyname: lsr_dir_many_perm
+            # syscall list
+              - action: always
+                filter: exit
+                arch: b64
+                syscall:
+                  - open
+                  - close
+                keyname: lsr_sc_list
+            # field list covering operators =, !=, <, >, <=, >=, &, &=
+              - action: always
+                filter: exit
+                arch: b64
+                syscall: open
+                path: /etc/issue
+                permission: read
+                field:
+                  - success=1
+                  - auid!=-1
+                  - exit<-1
+                  - gid>10
+                  - euid<=65534
+                  - pid>=0
+                  - a1&0100
+                  - a2&=0200
+                keyname:
+                  - lsr_ops
+                  - lsr_ops2
+                  - lsr_ops3
+            # keyname list
+              - action: always
+                filter: exit
+                arch: b64
+                syscall: dup
+                keyname:
+                  - kk1
+                  - kk2
+
+        - name: Flush handlers after role
+          ansible.builtin.meta: flush_handlers
+
+        - name: Read generated auditd.conf
+          ansible.builtin.slurp:
+            path: "{{ __auditd_config_directory }}/{{ __auditd_config_file }}"
+          register: __auditd_integration_conf
+
+        - name: Verify auditd.conf reflects role parameters
+          ansible.builtin.assert:
+            that:
+              - "'local_events = yes' in __c"
+              - "'write_logs = yes' in __c"
+              - "'log_file = /var/log/audit/audit.log' in __c"
+              - "'log_format = RAW' in __c"
+              - "'log_group = root' in __c"
+              - "'flush = INCREMENTAL_ASYNC' in __c"
+              - "'freq = 55' in __c"
+              - "'max_log_file = 9' in __c"
+              - "'num_logs = 6' in __c"
+              - "'priority_boost = 5' in __c"
+              - "'name_format = USER' in __c"
+              - "'max_log_file_action = IGNORE' in __c"
+              - "'space_left = 80' in __c"
+              - "'space_left_action = SYSLOG' in __c"
+              - "'verify_email = yes' in __c"
+              - "'action_mail_acct = root' in __c"
+              - "'admin_space_left = 55' in __c"
+              - "'admin_space_left_action = SYSLOG' in __c"
+              - "'disk_full_action = SYSLOG' in __c"
+              - "'disk_error_action = SYSLOG' in __c"
+              - "'tcp_listen_port = 1024' in __c"
+              - "'tcp_listen_queue = 6' in __c"
+              - "'tcp_max_per_addr = 2' in __c"
+              - "'tcp_client_ports = 1024-65535' in __c"
+              - "'tcp_client_max_idle = 1' in __c"
+              - "'transport = TCP' in __c"
+              - "'enable_krb5 = no' in __c"
+              - "'krb5_principal = auditd' in __c"
+              - "'krb5_key_file = /etc/audit/audit.key' in __c"
+              - "'distribute_network = yes' in __c"
+              - "'q_depth = 2001' in __c"
+              - "'overflow_action = SINGLE' in __c"
+              - "'max_restarts = 11' in __c"
+              - "'plugin_dir = /etc/audit/plugins.d/' in __c"
+              - "'end_of_event_timeout = 2' in __c"
+          vars:
+            __c: "{{ __auditd_integration_conf.content | b64decode }}"
+
+        - name: Verify report_interval is present in auditd.conf
+          ansible.builtin.assert:
+            that:
+              - "'report_interval = 1' in __c"
+            fail_msg: >-
+              report_interval should not be present in auditd.conf
+          vars:
+            __c: "{{ __auditd_integration_conf.content | b64decode }}"
+          when: auditd_version is version("4.0.5", ">=")
+
+        - name: Read generated custom.rules
+          ansible.builtin.slurp:
+            path: "{{ __auditd_rules_file }}"
+          register: __auditd_integration_rules
+
+        - name: Assert every rendered rule line with syscall uses filter exit or io_uring
+          ansible.builtin.assert:
+            that:
+              - (item is search('^-a (always|never),exit ')) or (item is search('^-a (always|never),io_uring '))
+            fail_msg: >-
+              Syscall rules must use filter exit or io_uring; invalid line {{ item | quote }}
+          loop: >-
+            {{
+              (__auditd_integration_rules.content | b64decode).splitlines()
+              | map('trim')
+              | reject('equalto', '')
+              | select('search', ' -S')
+              | list
+            }}
+          loop_control:
+            label: "{{ item[:80] }}{{ '...' if (item | length) > 80 else '' }}"
+
+        - name: Set expected rendered lines for auditd_rules (used by assertions below)
+          ansible.builtin.set_fact:
+            __auditd_integration_expected_rule_lines:
+              - "-a never,filesystem -F fstype=debugfs -F key=lsr_fs_dbg"
+              - "-a always,{{ __filter }} -S openat,openat2 -F key=lsr_io_uring"
+              - "-a always,exit -S open -F key=lsr_arch_nw"
+              - "-a always,exit -F arch=b32 -S read -F key=lsr_arch_pair"
+              - "-a always,exit -F arch=b64 -S read -F key=lsr_arch_pair"
+              - "-a always,exit -F arch=b64 -S open -F path=/etc/hosts -F key=lsr_path_nw"
+              - "-a always,exit -F arch=b64 -S open -F dir=/etc/ssh -F perm=r -F key=lsr_dir_one_perm"
+              - "-a always,exit -F arch=b64 -S openat -F dir=/tmp -F perm=rw -F key=lsr_dir_many_perm"
+              - "-a always,exit -F arch=b64 -S open,close -F key=lsr_sc_list"
+              - >-
+                -a always,exit -F arch=b64 -S open -F path=/etc/issue -F perm=r -F success=1 -F auid!=-1 -F exit<-1
+                -F gid>10 -F euid<=65534 -F pid>=0 -F a1&0100 -F a2&=0200 -F key=lsr_ops -F key=lsr_ops2 -F key=lsr_ops3
+              - "-a always,exit -F arch=b64 -S dup -F key=kk1 -F key=kk2"
+
+        - name: Verify custom.rules contains global options and every auditd_rules line
+          vars:
+            __r: "{{ __auditd_integration_rules.content | b64decode }}"
+            __r1: "{{ __r | replace('\n', ' ') }}"
+          ansible.builtin.assert:
+            that:
+              - "'-b 32769' in __r"
+              - "'-f 1' in __r"
+              - "'-r 16777216' in __r"
+              - "'-e 1' in __r"
+              - "'--backlog_wait_time 60' in __r"
+              - item in __r1
+          loop: "{{ __auditd_integration_expected_rule_lines }}"
+          loop_control:
+            label: "{{ item[:70] }}{{ '...' if (item | length) > 70 else '' }}"
+
+        - name: Verify exactly one custom.rules line matches each auditd_rules entry
+          vars:
+            __decoded: "{{ __auditd_integration_rules.content | b64decode }}"
+            __rule_lines: "{{ __decoded.splitlines() | map('trim') | list }}"
+          ansible.builtin.assert:
+            that:
+              - (__rule_lines | select('equalto', item) | list | length) == 1
+            fail_msg: >-
+              Expected exactly one line equal to {{ item | quote }}; matched
+              {{ __rule_lines | select('equalto', item) | list | length }} line(s).
+          loop: "{{ __auditd_integration_expected_rule_lines }}"
+          loop_control:
+            label: "{{ item[:70] }}{{ '...' if (item | length) > 70 else '' }}"
+
+        - name: Verify settings printed by auditctl -s are as expected
+          ansible.builtin.command: auditctl -s
+          changed_when: false
+          failed_when:
+            - __auditctl_settings.rc != 0
+            - __auditctl_settings.stdout_lines | select('match', '^enabled 1$') | list | length != 1
+            - __auditctl_settings.stdout_lines | select('match', '^failure 1$') | list | length != 1
+            - __auditctl_settings.stdout_lines | select('match', '^rate_limit 16777216$') | list | length != 1
+            - __auditctl_settings.stdout_lines | select('match', '^backlog_wait_time 60$') | list | length != 1
+            - __auditctl_settings.stdout_lines | select('match', '^backlog_limit 32769$') | list | length != 1
+          register: __auditctl_settings
+
+      rescue:
+        - name: Cat audit.rules
+          ansible.builtin.command: cat "{{ __auditd_config_directory }}/audit.rules"
+          changed_when: false
+          failed_when: true
+
+      always:
+        - name: Restore system state after integration test
+          ansible.builtin.include_tasks: tasks/cleanup.yml
+          tags: tests::cleanup

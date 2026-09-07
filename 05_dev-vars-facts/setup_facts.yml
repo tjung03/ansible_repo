@@ -1,0 +1,25 @@
+---
+- name: 0) 사용자 정의 팩트
+  hosts: webserver
+  vars:
+    dir_facts: /etc/ansible/facts.d
+    file_facts: custom.fact
+  tasks:
+    ########################################################################
+    # 1) 디렉토리 생성 - (file) /etc/ansible/facts.d
+    # 2) 팩트 파일 생성
+    #    - (copy) custom.fact -- copy --> /etc/ansible/facts.d/custom.fact
+    ########################################################################
+    - name: 1) 디렉토리 생성 - {{ dir_facts }}
+      ansible.builtin.file:
+        path: "{{ dir_facts }}"
+        state: directory
+        mode: '0755'
+
+    - name: 2) 팩트 파일 생성 - {{ dir_facts }}/{{ file_facts }}
+      ansible.builtin.copy:
+        src: "{{ file_facts }}"
+        dest: "{{ dir_facts }}"
+        owner: root
+        group: root
+        mode: '0644'

@@ -1,0 +1,60 @@
+{{ ansible_managed | comment }}
+{{ "system_role:auditd" | comment(prefix="", postfix="") }}
+#
+# This file controls the configuration of the audit daemon
+#
+{% macro auditd_yesno(v) -%}{{ 'yes' if v | bool else 'no' }}{%- endmacro %}
+
+local_events = {{ auditd_yesno(auditd_local_events) }}
+write_logs = {{ auditd_yesno(auditd_write_logs) }}
+log_file = {{ auditd_log_file }}
+log_group = {{ auditd_log_group }}
+log_format = {{ auditd_log_format }}
+flush = {{ auditd_flush }}
+freq = {{ auditd_freq }}
+max_log_file = {{ auditd_max_log_file }}
+num_logs = {{ auditd_num_logs }}
+priority_boost = {{ auditd_priority_boost }}
+name_format = {{ auditd_name_format }}
+{% if auditd_name | default('', true) | length > 0 %}
+name = {{ auditd_name }}
+{% endif %}
+max_log_file_action = {{ auditd_max_log_file_action }}{% if auditd_max_log_file_action | lower == 'exec' and auditd_max_log_file_action_exe | default('', true) | length > 0 %} {{ auditd_max_log_file_action_exe }}{% endif %}
+
+space_left = {{ auditd_space_left }}
+space_left_action = {{ auditd_space_left_action }}{% if auditd_space_left_action | lower == 'exec' and auditd_space_left_action_exe | default('', true) | length > 0 %} {{ auditd_space_left_action_exe }}{% endif %}
+
+verify_email = {{ auditd_yesno(auditd_verify_email) }}
+action_mail_acct = {{ auditd_action_mail_acct }}
+admin_space_left = {{ auditd_admin_space_left }}
+admin_space_left_action = {{ auditd_admin_space_left_action }}{% if auditd_admin_space_left_action | lower == 'exec' and auditd_admin_space_left_action_exe | default('', true) | length > 0 %} {{ auditd_admin_space_left_action_exe }}{% endif %}
+
+disk_full_action = {{ auditd_disk_full_action }}{% if auditd_disk_full_action | lower == 'exec' and auditd_disk_full_action_exe | default('', true) | length > 0 %} {{ auditd_disk_full_action_exe }}{% endif %}
+
+disk_error_action = {{ auditd_disk_error_action }}{% if auditd_disk_error_action | lower == 'exec' and auditd_disk_error_action_exe | default('', true) | length > 0 %} {{ auditd_disk_error_action_exe }}{% endif %}
+
+{% if auditd_version is version("4.0.5", ">=") %}
+report_interval = {{ auditd_report_interval }}
+{% endif %}
+use_libwrap = {{ auditd_yesno(auditd_use_libwrap) }}
+{% if auditd_tcp_listen_port | int > 0 %}
+tcp_listen_port = {{ auditd_tcp_listen_port }}
+{% endif %}
+tcp_listen_queue = {{ auditd_tcp_listen_queue }}
+tcp_max_per_addr = {{ auditd_tcp_max_per_addr }}
+{% if auditd_tcp_client_ports | string != "0" %}
+tcp_client_ports = {{ auditd_tcp_client_ports }}
+{% endif %}
+tcp_client_max_idle = {{ auditd_tcp_client_max_idle }}
+transport = {{ auditd_transport }}
+enable_krb5 = {{ auditd_yesno(auditd_enable_krb5) }}
+krb5_principal = {{ auditd_krb5_principal }}
+{% if auditd_krb5_key_file | default('', true) | length > 0 %}
+krb5_key_file = {{ auditd_krb5_key_file }}
+{% endif %}
+distribute_network = {{ auditd_yesno(auditd_distribute_network) }}
+q_depth = {{ auditd_q_depth }}
+overflow_action = {{ auditd_overflow_action }}
+max_restarts = {{ auditd_max_restarts }}
+plugin_dir = {{ auditd_plugin_dir | regex_replace('/$', '') }}/
+end_of_event_timeout = {{ auditd_end_of_event_timeout }}

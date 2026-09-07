@@ -1,0 +1,6 @@
+---
+- name: Demo Web
+  hosts: all
+  roles:
+    - tjung03.jthweb
+

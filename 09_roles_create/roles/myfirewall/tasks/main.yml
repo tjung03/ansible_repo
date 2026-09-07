@@ -1,0 +1,26 @@
+---
+# tasks file for roles/myfirewall
+#####################################
+# 1) 패키지 설치 - firewalld
+# 2) 서비스 기동 - firewalld.service
+# 3) 방화벽 서비스 등록 - http, https
+#####################################
+- name: Install the package - {{ pkgs }}
+  ansible.builtin.dnf:
+    name: "{{ pkgs }}"
+    state: present
+
+- name: Start the service - {{ svcs }}
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: "{{ svcs }}"
+
+- name: Open the service port - {{ fw_svcs }}
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ fw_svcs }}"

@@ -1,0 +1,7 @@
+---
+- name: Reset settings and provider to os default
+  include_tasks: tasks/run_role_with_clear_facts.yml
+  vars:
+    timesync_ntp_provider: "{{ timesync_ntp_provider_os_default }}"
+    timesync_ptp_domains: []
+    timesync_ntp_servers: []

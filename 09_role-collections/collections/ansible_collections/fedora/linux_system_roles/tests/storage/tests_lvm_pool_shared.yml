@@ -1,0 +1,169 @@
+---
+- name: Test LVM shared pools
+  hosts: all
+  become: true
+  vars:
+    storage_safe_mode: false
+    storage_use_partitions: true
+    mount_location1: '/opt/test1'
+    volume1_size: '4g'
+    lvm_conf: /etc/lvm/lvm.conf
+
+  tasks:
+    - name: Skip this test if test system does not support
+      meta: end_host
+      when: lookup("env", "SYSTEM_ROLES_STORAGE_SHARED_TEST") != "true"
+
+    - name: Run the test
+      block:
+        - name: Storage test setup
+          ansible.builtin.include_tasks: tasks/setup.yml
+          vars:
+            __storage_get_package_facts: true
+            __storage_get_unused_disks: false
+
+        - name: See if lvm.conf exists
+          stat:
+            path: "{{ lvm_conf }}"
+          register: __lvm_conf_stat
+
+        - name: Create a tempfile
+          tempfile:
+            prefix: storage_
+            suffix: _lvm_shared
+          register: __storage_save_conf
+          when: __lvm_conf_stat.stat.exists
+
+        - name: Copy lvm.conf to tempfile
+          copy:
+            src: "{{ lvm_conf }}"
+            dest: "{{  __storage_save_conf.path }}"
+            remote_src: true
+            mode: "{{ __lvm_conf_stat.stat.mode }}"
+          when: __lvm_conf_stat.stat.exists
+
+        - name: Change node from 'localhost' to '127.0.0.1'
+          set_fact:
+            inventory_hostname: "127.0.0.1" # noqa: var-naming
+          when: inventory_hostname == "localhost"
+
+        - name: Skip test if the blivet version does not support shared VGs
+          meta: end_host
+          when: ((is_fedora and blivet_pkg_version is version("3.8.2-1", "<")) or (is_rhel8 and blivet_pkg_version is version("3.6.0-8", "<")) or (is_rhel9 and blivet_pkg_version is version("3.6.0-11", "<")) or is_rhel10)
+
+        - name: Create cluster
+          ansible.builtin.include_role:
+            name: fedora.linux_system_roles.ha_cluster
+          vars:
+            ha_cluster_cluster_name: rhel9-1node
+          # Users should vault-encrypt the password
+            ha_cluster_hacluster_password: hapasswd
+            ha_cluster_extra_packages:
+              - dlm
+              - lvm2-lockd
+            ha_cluster_cluster_properties:
+              - attrs:
+                # Don't do this in production
+                  - name: stonith-enabled
+                    value: 'false'
+            ha_cluster_resource_primitives:
+              - id: dlm
+                agent: 'ocf:pacemaker:controld'
+                instance_attrs:
+                  - attrs:
+                    # Don't do this in production
+                      - name: allow_stonith_disabled
+                        value: 'true'
+              - id: lvmlockd
+                agent: 'ocf:heartbeat:lvmlockd'
+            ha_cluster_resource_groups:
+              - id: locking
+                resource_ids:
+                  - dlm
+                  - lvmlockd
+
+        - name: Discover unused disks for testing
+          ansible.builtin.include_tasks: tasks/get_unused_disk.yml
+          vars:
+            max_return: 1
+
+        - name: >-
+            Create a disk device; specify disks as non-list mounted on
+            {{ mount_location }}
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            storage_pools:
+              - name: vg1
+                disks: "{{ unused_disks }}"
+                type: lvm
+                shared: true
+                state: present
+                volumes:
+                  - name: lv1
+                    size: "{{ volume1_size }}"
+                    mount_point: "{{ mount_location1 }}"
+                    fs_type: gfs2
+                    fs_create_options: -j 2 -t rhel9-1node:myfs
+
+        - name: Verify role results
+          include_tasks: verify-role-results.yml
+
+        - name: Repeat the previous step to verify idempotence
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            storage_pools:
+              - name: vg1
+                disks: "{{ unused_disks }}"
+                type: lvm
+                shared: true
+                state: present
+                volumes:
+                  - name: lv1
+                    size: "{{ volume1_size }}"
+                    mount_point: "{{ mount_location1 }}"
+                    fs_type: gfs2
+                    fs_create_options: -j 2 -t rhel9-1node:myfs
+
+        - name: Verify role results - 2
+          include_tasks: verify-role-results.yml
+
+        - name: >-
+            Remove the device created above
+            {{ mount_location }}
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            storage_pools:
+              - name: vg1
+                disks: "{{ unused_disks }}"
+                type: lvm
+                shared: true
+                state: absent
+                volumes:
+                  - name: lv1
+                    size: "{{ volume1_size }}"
+                    mount_point: "{{ mount_location1 }}"
+
+        - name: Verify role results - 3
+          include_tasks: verify-role-results.yml
+
+      always:
+        - name: Remove cluster
+          ansible.builtin.include_role:
+            name: fedora.linux_system_roles.ha_cluster
+          vars:
+            ha_cluster_cluster_name: rhel9-1node
+            ha_cluster_cluster_present: false
+
+        - name: Restore lvm.conf from tempfile
+          copy:
+            src: "{{  __storage_save_conf.path }}"
+            dest: "{{ lvm_conf }}"
+            remote_src: true
+            mode: "{{ __lvm_conf_stat.stat.mode }}"
+          when: __lvm_conf_stat.stat.exists
+
+        - name: Remove tempfile
+          file:
+            path: "{{  __storage_save_conf.path }}"
+            state: absent
+          when: __lvm_conf_stat.stat.exists

@@ -1,0 +1,78 @@
+---
+- name: Test role with default options
+  hosts: all
+  tasks:
+    - name: See if /dev/log exists for the fingerprint check
+      ansible.builtin.stat:
+        path: /dev/log
+      register: __register_dev_log
+
+    - name: Set the start time for the journal search
+      ansible.builtin.set_fact:
+        __journal_start_time: "{{ ansible_facts['date_time']['date'] ~ ' ' ~ ansible_facts['date_time']['time'] }}"
+      when: __register_dev_log.stat.exists
+
+    - name: Run cockpit role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        __sr_public: true
+
+    - name: Tests
+      block:
+      # look for the exact module invocation, not some other message that might contain the string
+        - name: Check system journal contains role fingerprints
+          ansible.builtin.shell:
+            executable: /bin/bash
+            cmd: >-
+              set -eo pipefail;
+              journalctl --since "{{ __journal_start_time }}" --no-pager |
+              grep -v " Invoked with" | grep "sr_fingerprint.*begin system_role:cockpit" ||
+              { echo ERROR: BEGIN fingerprint not found; exit 1; };
+              journalctl --since "{{ __journal_start_time }}" --no-pager |
+              grep -v " Invoked with" | grep "sr_fingerprint.*success system_role:cockpit" ||
+              { echo ERROR: SUCCESS fingerprint not found; exit 1; }
+          changed_when: false
+          when: __register_dev_log.stat.exists
+
+        - name: Test - socket is active # noqa command-instead-of-module
+          command: systemctl is-active {{ __cockpit_daemon }}
+          changed_when: false
+          when: __cockpit_is_booted
+
+        - name: Test - socket is enabled # noqa command-instead-of-module
+          command: systemctl is-enabled {{ __cockpit_daemon }}
+          changed_when: false
+
+        - name: Test - cockpit works with TLS
+          get_url:
+            dest: /run/out
+            url: https://localhost:9090
+            validate_certs: false
+            mode: "0600"
+          when: __cockpit_is_booted
+
+        - name: Test - HTTP response is something sensible
+          command: grep 'id="login-user-input"' /run/out
+          changed_when: false
+          when: __cockpit_is_booted
+
+        - name: Test - clean up output file
+          file:
+            path: /run/out
+            state: absent
+
+        - name: Test - no configuration file
+          stat:
+            path: /etc/cockpit/cockpit.conf
+          register: result
+          failed_when: result.stat.exists
+
+        - name: Test - no port configuration file
+          stat:
+            path: /etc/systemd/system/cockpit.socket.d
+          register: result
+          failed_when: result.stat.exists
+
+      always:
+        - name: Cleanup
+          include_tasks: tasks/cleanup.yml

@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT
+---
+# Internal variable overrides for RedHat 8.
+
+# no io_uring filter for RedHat 8
+__auditd_rules_filters:
+  - exclude
+  - exit
+  - filesystem
+  - task
+  - user

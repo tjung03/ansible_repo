@@ -1,0 +1,296 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Ensure that deploying unit files work correctly
+  hosts: all
+  vars:
+    systemd_unit_file_templates:
+      - nested/dir/templates/foo.service.j2
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+    - name: Verify that unit file was deployed
+      stat:
+        path: /etc/systemd/system/foo.service
+
+- name: Ensure that deploying unit file dropins work correctly
+  hosts: all
+  vars:
+    systemd_dropins:
+      - nested/dir/templates/foo.service.conf.j2
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+    - name: Stat the dropin directory path
+      stat:
+        path: /etc/systemd/system/foo.service.d
+      register: dropin
+
+    - name: Check that drop in directory exists
+      assert:
+        that:
+          - dropin.stat.isdir | d(false)
+
+    - name: Verify that dropin file was deployed
+      stat:
+        path: /etc/systemd/system/foo.service.d/99-override.conf
+
+- name: Ensure that we can start units using the role
+  hosts: all
+  vars:
+    systemd_started_units:
+      - foo.service
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+    - name: Make sure that foo.service main state is active
+      assert:
+        that:
+          - >-
+            ansible_facts['systemd_units']
+            ['foo.service']
+            ['active_state'] == "active"
+          - >-
+            ansible_facts['systemd_units']
+            ['foo.service']
+            ['sub_state'] == "running"
+
+- name: Ensure that we can restart units using the role
+  hosts: all
+  vars:
+    systemd_restarted_units:
+      - foo.service
+  pre_tasks:
+    - name: Save MainPID of foo.service before restart
+    # noqa command-instead-of-module
+      command: systemctl show -p MainPID foo.service
+      register: pid_before_restart
+      changed_when: false
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+    - name: Get MainPID of foo.service
+    # noqa command-instead-of-module
+      command: systemctl show -p MainPID foo.service
+      register: pid_after_restart
+      changed_when: false
+
+    - name: Check that service was restarted by looking at MainPID
+      assert:
+        that:
+          - pid_before_restart.stdout != pid_after_restart.stdout
+
+- name: Ensure that we can reload units
+  hosts: all
+  vars:
+    systemd_reloaded_units:
+      - foo.service
+  pre_tasks:
+    - name: Delete reload flag file
+      file:
+        path: /tmp/foo-service-reloaded
+        state: absent
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+    - name: Reload operation should created flag file
+      stat:
+        path: /tmp/foo-service-reloaded
+
+- name: Ensure that we can enable unit files
+  hosts: all
+  vars:
+    systemd_enabled_units:
+      - foo.service
+  pre_tasks:
+    - name: Save UnitFileState before calling role
+    # noqa command-instead-of-module
+      command: systemctl show -p UnitFileState foo.service
+      register: unit_file_state_before
+      changed_when: false
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+    - name: Get UnitFileState=
+    # noqa command-instead-of-module
+      command: systemctl show -p UnitFileState foo.service
+      register: unit_file_state_after
+      changed_when: false
+
+    - name: Check that unit file was enabled
+      assert:
+        that:
+          - unit_file_state_before.stdout == "UnitFileState=disabled"
+          - unit_file_state_after.stdout == "UnitFileState=enabled"
+
+- name: Ensure that we can disable unit files
+  hosts: all
+  vars:
+    systemd_disabled_units:
+      - foo.service
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+    - name: Get UnitFileState= - 2
+    # noqa command-instead-of-module
+      command: systemctl show -p UnitFileState foo.service
+      register: unit_file_state_now
+      changed_when: false
+
+    - name: Check that foo.service is disabled
+      assert:
+        that:
+          - unit_file_state_now.stdout == "UnitFileState=disabled"
+
+- name: Ensure that we can mask unit files
+  hosts: all
+  vars:
+  # It is not possible to mask admin units files in /etc/systemd/system.
+    systemd_masked_units:
+      - sshd.service
+  pre_tasks:
+    - name: Save UnitFileState before calling role - 2
+    # noqa command-instead-of-module
+      command: systemctl show -p UnitFileState sshd.service
+      register: sshd_state_before
+      changed_when: false
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+    - name: Get UnitFileState= - 3
+    # noqa command-instead-of-module
+      command: systemctl show -p UnitFileState sshd.service
+      register: sshd_state_after
+      changed_when: false
+
+    - name: Check that sshd is masked
+      assert:
+        that:
+          - sshd_state_before.stdout == "UnitFileState=enabled"
+          - >-
+            sshd_state_after.stdout == "UnitFileState=masked" or
+            sshd_state_after.stdout == "UnitFileState=bad"
+
+- name: Ensure that we can unmask unit files
+  hosts: all
+  vars:
+    systemd_unmasked_units:
+      - sshd.service
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+    - name: Get UnitFileState= - 4
+    # noqa command-instead-of-module
+      command: systemctl show -p UnitFileState sshd.service
+      register: sshd_state_now
+      changed_when: false
+
+    - name: Check that sshd was correctly unmasked
+      assert:
+        that:
+          - sshd_state_now.stdout == "UnitFileState=enabled"
+
+- name: Ensure that we can stop units
+  hosts: all
+  vars:
+    systemd_stopped_units:
+      - foo.service
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+    - name: Foo.service shouldn't be in systemd_units
+      fail:
+      when: ansible_facts['systemd_units']['foo.service'] is defined
+
+- name: Test unmask and start
+  hosts: all
+  vars:
+  # we need a
+  # * system service provided in /usr/lib/systemd/system
+  # * service exists on all platforms
+  # * service can be masked/stopped without breaking the test
+  # e.g. sshd is used by the test - stopping will break test
+  # look for these units in order
+    test_units:
+      - crond.service
+      - systemd-hostnamed.service
+      - systemd-journald.service
+    test_unit: crond.service
+  tasks:
+    - name: Get list of services that exist
+      shell:
+        executable: /bin/bash
+        cmd: |
+          set -euo pipefail
+          for unit in {{ test_units | join(" ") }}; do
+            if systemctl list-unit-files "$unit" > /dev/null 2>&1; then
+              echo "$unit"
+              exit 0
+            fi
+          done
+          exit 1
+      changed_when: false
+      register: __find_test_unit
+
+    - name: Set test unit
+      set_fact:
+        test_unit: "{{ __find_test_unit.stdout | trim }}"
+
+    - name: Ensure test unit is running and unmasked
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        systemd_started_units:
+          - "{{ test_unit }}"
+        systemd_unmasked_units:
+          - "{{ test_unit }}"
+
+    - name: Get test unit state
+    # noqa command-instead-of-module
+      command: systemctl show -p UnitFileState -p SubState "{{ test_unit }}"
+      register: test_unit_state
+      changed_when: false
+
+    - name: Ensure test unit running and unmasked
+      assert:
+        that:
+          - test_unit_state.stdout is search("UnitFileState=enabled") or test_unit_state.stdout is search("UnitFileState=static")
+          - test_unit_state.stdout is search("SubState=running")
+
+    - name: Stop and mask test unit
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        systemd_stopped_units:
+          - "{{ test_unit }}"
+        systemd_masked_units:
+          - "{{ test_unit }}"
+
+    - name: Get test unit state and check status
+    # noqa command-instead-of-module
+      command: systemctl show -p UnitFileState -p SubState "{{ test_unit }}"
+      register: test_unit_state
+      changed_when: false
+      until: condition
+      retries: 6
+      delay: 10
+      failed_when: not condition
+      vars:
+        condition: "{{ (test_unit_state.stdout is search('UnitFileState=masked') or test_unit_state.stdout is search('UnitFileState=bad')) and test_unit_state.stdout is search('SubState=dead') }}"
+
+    - name: Ensure test unit is running and unmasked - 2
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        systemd_started_units:
+          - "{{ test_unit }}"
+        systemd_unmasked_units:
+          - "{{ test_unit }}"
+
+    - name: Get test unit state - 3
+    # noqa command-instead-of-module
+      command: systemctl show -p UnitFileState -p SubState "{{ test_unit }}"
+      register: test_unit_state
+      changed_when: false
+
+    - name: Ensure test unit running and unmasked - 2
+      assert:
+        that:
+          - test_unit_state.stdout is search("UnitFileState=enabled") or test_unit_state.stdout is search("UnitFileState=static")
+          - test_unit_state.stdout is search("SubState=running")

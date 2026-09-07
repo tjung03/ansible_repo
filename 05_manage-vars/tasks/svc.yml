@@ -1,0 +1,8 @@
+---
+# Task
+- name: 서비스 기동 - {{ svcs }}
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: "{{ svcs }}"

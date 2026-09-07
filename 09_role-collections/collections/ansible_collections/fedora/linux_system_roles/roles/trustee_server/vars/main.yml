@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: MIT
+---
+# Put the role's internal variables here that are not distribution specific.
+# You can override these by defining the same variable with a different
+# value in a platform/version specific file in vars/
+
+# Examples of non-distribution specific (generic) internal variables:
+__trustee_server_trustee_packages:
+  - podman
+__trustee_server_services: []
+__trustee_server_secret_registration_packages:
+  - python3
+__trustee_server_quadlet_install_dir: "/etc/containers/systemd"
+__trustee_server_config_dir: "/etc/trustee"
+# ansible_facts required by the role
+__trustee_server_required_facts:
+  - distribution
+  - distribution_major_version
+  - distribution_version
+  - os_family
+# the subsets of ansible_facts that need to be gathered in case any of the
+# facts in required_facts is missing; see the documentation of
+# the 'gather_subset' parameter of the 'setup' module
+__trustee_server_required_facts_subsets: "{{ ['!all', '!min'] + __trustee_server_required_facts }}"
+
+# BEGIN - DO NOT EDIT THIS BLOCK - rh distros variables
+# Ansible distribution identifiers that the role treats like RHEL
+__trustee_server_rh_distros:
+  - AlmaLinux
+  - CentOS
+  - RedHat
+  - Rocky
+
+# Same as above but includes Fedora
+__trustee_server_rh_distros_fedora: "{{ __trustee_server_rh_distros + ['Fedora'] }}"
+
+# Use this in conditionals to check if distro is Red Hat or clone
+__trustee_server_is_rh_distro: "{{ ansible_facts['distribution'] in __trustee_server_rh_distros }}"
+
+# Use this in conditionals to check if distro is Red Hat or clone, or Fedora
+__trustee_server_is_rh_distro_fedora: "{{ ansible_facts['distribution'] in __trustee_server_rh_distros_fedora }}"
+# END - DO NOT EDIT THIS BLOCK - rh distros variables

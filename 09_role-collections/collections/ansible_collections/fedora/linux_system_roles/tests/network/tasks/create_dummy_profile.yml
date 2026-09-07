@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: BSD-3-Clause
+---
+- name: Include network role
+  include_tasks: run_role_with_clear_facts.yml
+  vars:
+    network_connections:
+      - name: "{{ interface }}"
+        autoconnect_retries: "{{ autocon_retries }}"
+        state: up
+        type: dummy
+        ip:
+          address:
+            - "192.0.2.42/30"
+            - "2001:db8::23/64"
+          wait_ip: "{{ wait_ip }}"
+- name: Show result
+  debug:
+    var: __network_connections_result
+...

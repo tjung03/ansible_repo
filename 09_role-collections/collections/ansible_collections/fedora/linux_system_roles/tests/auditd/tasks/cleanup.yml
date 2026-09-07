@@ -1,0 +1,113 @@
+# SPDX-License-Identifier: MIT
+# Restores auditd files from backup.
+# Uses __auditd_integration_find_files and __auditd_integration_backup_tmp
+# from setup.yml.
+---
+- name: Restore auditd files from backup
+  ansible.builtin.copy:
+    src: "{{ __auditd_integration_backup_tmp.path }}{{ item.path }}"
+    dest: "{{ item.path }}"
+    remote_src: true
+    mode: preserve
+  loop: "{{ __auditd_integration_find_files.files | d([]) }}"
+  register: __auditd_integration_restore_files
+
+- name: Remove backup temporary directory
+  ansible.builtin.file:
+    path: "{{ __auditd_integration_backup_tmp.path }}"
+    state: absent
+  when: __auditd_integration_backup_tmp is defined
+
+- name: Get private variables from role if not defined
+  ansible.builtin.include_role:
+    name: fedora.linux_system_roles.auditd
+    tasks_from: set_vars.yml
+    public: true
+  when: __auditd_rules_file is not defined
+
+- name: Remove custom.rules
+  ansible.builtin.file:
+    path: "{{ __auditd_rules_file }}"
+    state: absent
+  register: __auditd_integration_remove_custom_rules
+
+- name: Reload auditd configuration
+  when: __auditd_integration_restore_files is changed or __auditd_integration_remove_custom_rules is changed # noqa no-handler
+  block:
+    - name: Run augenrules
+      ansible.builtin.command:
+        cmd: augenrules
+      changed_when: true
+
+    - name: Load audit rules
+      ansible.builtin.command:
+        cmd: augenrules --load
+      changed_when: true
+      when:
+        - ansible_connection not in ["container", "docker", "community.docker.docker"]
+
+    - name: Restart auditd
+      block:
+        - name: Restart auditd
+          ansible.builtin.service:
+            name: "{{ __auditd_service }}"
+            state: restarted
+            use: service
+
+      rescue:
+        - name: Debug failure
+          ansible.builtin.shell:
+            executable: bash
+            cmd: |
+              set -euxo pipefail
+              exec 1>&2
+              journalctl -ex
+              systemctl status auditd || :
+              systemctl status audit-rules || :
+          changed_when: false
+          failed_when: true
+
+# Restore kernel audit parameters from the role's pre-run `auditctl -s` capture
+# (auditd_auditctl_settings_previous in tasks/main.yml). Maps status fields to
+# auditctl options per auditctl(8): backlog_limit -> -b, failure -> -f,
+# rate_limit -> -r, backlog_wait_time -> --backlog_wait_time,
+# loginuid_immutable 1 -> --loginuid-immutable, enabled -> -e (applied last).
+- name: Restore kernel audit settings from auditd_auditctl_settings_previous
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      mapfile -t lines
+      parse_second_field() {
+        printf '%s\n' "${lines[@]}" | awk -v k="$1" '$1==k {print $2; exit}'
+      }
+      backlog_limit=$(parse_second_field backlog_limit)
+      failure=$(parse_second_field failure)
+      rate_limit=$(parse_second_field rate_limit)
+      backlog_wait_time=$(parse_second_field backlog_wait_time)
+      loginuid_immutable=$(parse_second_field loginuid_immutable)
+      enabled=$(parse_second_field enabled)
+      if [[ -n "${backlog_limit}" ]]; then
+        auditctl -b "${backlog_limit}"
+      fi
+      if [[ -n "${failure}" ]]; then
+        auditctl -f "${failure}"
+      fi
+      if [[ -n "${rate_limit}" ]]; then
+        auditctl -r "${rate_limit}"
+      fi
+      if [[ -n "${backlog_wait_time}" ]]; then
+        auditctl --backlog_wait_time "${backlog_wait_time}"
+      fi
+      if [[ "${loginuid_immutable}" == "1" ]]; then
+        auditctl --loginuid-immutable
+      fi
+      if [[ -n "${enabled}" ]]; then
+        auditctl -e "${enabled}"
+      fi
+    stdin: "{{ auditd_auditctl_settings_previous.stdout }}"
+  when:
+    - auditd_auditctl_settings_previous is defined
+    - auditd_auditctl_settings_previous.rc | default(1) == 0
+    - auditd_auditctl_settings_previous.stdout | default('') | length > 0
+  changed_when: false

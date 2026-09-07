@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: MIT
+---
+# Defaults match struct daemon_conf initialization in audit-userspace
+# src/auditd-config.c (clear_config). See auditd.conf(5) for keywords.
+# Variables below are listed alphabetically (auditd.conf options and
+# custom.rules-related options are interleaved).
+
+auditd_action_mail_acct: root
+auditd_admin_space_left: "50"
+auditd_admin_space_left_action: SUSPEND
+# Required when admin_space_left_action is exec.
+auditd_admin_space_left_action_exe: ""
+auditd_backlog_wait_time: 60000
+auditd_buffer_size: 32768
+auditd_disk_error_action: SUSPEND
+# Required when disk_error_action is exec.
+auditd_disk_error_action_exe: ""
+auditd_disk_full_action: SUSPEND
+# Required when disk_full_action is exec.
+auditd_disk_full_action_exe: ""
+auditd_distribute_network: false
+auditd_enable_flag: 1
+# When true, auditd sets Kerberos transport (build-dependent).
+auditd_enable_krb5: false
+auditd_end_of_event_timeout: 2
+auditd_fail_mode: 1
+auditd_flush: INCREMENTAL_ASYNC
+auditd_freq: 50
+auditd_krb5_key_file: ""
+auditd_krb5_principal: auditd
+auditd_local_events: true
+auditd_log_file: /var/log/audit/audit.log
+auditd_log_format: ENRICHED
+auditd_log_group: root
+auditd_loginuid_immutable: false
+auditd_manage_rules: true
+auditd_max_log_file: 8
+auditd_max_log_file_action: ROTATE
+# Required in the config file when max_log_file_action is exec.
+auditd_max_log_file_action_exe: ""
+auditd_max_restarts: 10
+auditd_maximum_rate: 0
+# Used when name_format is USER; leave empty to omit from the file.
+auditd_name: ""
+auditd_name_format: NONE
+auditd_num_logs: 5
+auditd_overflow_action: SYSLOG
+auditd_plugin_dir: /etc/audit/plugins.d
+auditd_priority_boost: 4
+# When true, remove all files under rules.d before deploying rules. If
+# custom.rules already matches the rendered template, it is kept and the
+# template task is skipped so the play reports no change for that file.
+auditd_purge_rules: false
+auditd_q_depth: 2000
+# Seconds; accepts forms parsed by time_string_to_seconds (see auditd.conf(5)).
+auditd_report_interval: "0"
+# When loginuid immutable is active in the kernel and the role is asked to turn
+# it off (auditd_loginuid_immutable: false), allow an immediate reboot so the
+# play can continue after the kernel resets the setting.
+auditd_reboot_ok: false
+auditd_rules: []
+auditd_space_left: "75"
+auditd_space_left_action: SYSLOG
+# Required when space_left_action is exec.
+auditd_space_left_action_exe: ""
+auditd_start_service: true
+auditd_tcp_client_max_idle: 0
+# Client port range, either `LOW` or `LOW-HIGH` (digits only). 0 means disabled.
+auditd_tcp_client_ports: 0
+auditd_tcp_listen_port: 0
+auditd_tcp_listen_queue: 5
+auditd_tcp_max_per_addr: 1
+auditd_transport: TCP
+auditd_use_libwrap: true
+auditd_verify_email: true
+auditd_write_logs: true

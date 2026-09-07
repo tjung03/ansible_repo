@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Get LSR_RHC_TEST_DATA environment variable
+  set_fact:
+    lsr_rhc_test_data_file: "{{ lookup('env', 'LSR_RHC_TEST_DATA') }}"
+  become: false
+
+- name: Handle external lsr_rhc_test_data
+  when: lsr_rhc_test_data_file | length > 0
+  become: false
+  block:
+    - name: Import test data
+      include_vars:
+        file: "{{ lsr_rhc_test_data_file }}"
+
+    - name: Get facts for external test data
+      setup:
+        gather_subset:
+          - "!all"
+          - "!min"
+          - distribution
+          - distribution_major_version
+
+- name: Set local lsr_rhc_test_data
+  include_vars:
+    file: ../files/candlepin_data.yml
+  when: lsr_rhc_test_data_file | length == 0
+
+- name: Determine if system is ostree and set flag
+  when: not __rhc_is_ostree is defined
+  block:
+    - name: Check if system is ostree
+      stat:
+        path: /run/ostree-booted
+      register: __ostree_booted_stat
+
+    - name: Set flag to indicate system is ostree
+      set_fact:
+        __rhc_is_ostree: "{{ __ostree_booted_stat.stat.exists }}"
+
+- name: Set flag to indicate use of external proxy
+  set_fact:
+    __rhc_use_external_proxy: "{{ lookup('env', 'SR_RHC_EXTERNAL_PROXY') | length > 0 }}"
+    __rhc_external_proxy_url: "{{ lookup('env', 'SR_RHC_EXTERNAL_PROXY') }}"
+
+- name: Set rhc_external_proxy to empty when external proxy is not used
+  set_fact:
+    rhc_external_proxy: {}
+  when: not __rhc_use_external_proxy
+
+- name: Handle external proxy
+  when: __rhc_use_external_proxy
+  block:
+    - name: Parse and set rhc_external_proxy
+      set_fact:
+        rhc_external_proxy:
+          scheme: "{{ __rhc_external_proxy_url | urlsplit('scheme') }}"
+          hostname: "{{ __rhc_external_proxy_url | urlsplit('hostname') }}"
+          port: "{{ (__rhc_external_proxy_url | urlsplit('port')) | default('') | string }}"
+
+  # unfortunately this doesn't work in all cases, so we have to add the environment
+  # explicitly to the check_candlepin.yml task as well
+    - name: Add proxy vars to bashrc
+      lineinfile:
+        path: /root/.bashrc
+        regexp: "^export https?="
+        line: "{{ item }}"
+        create: true
+        mode: "0644"
+      loop:
+        - export http_proxy={{ __rhc_external_proxy_url }}
+        - export https_proxy={{ __rhc_external_proxy_url }}

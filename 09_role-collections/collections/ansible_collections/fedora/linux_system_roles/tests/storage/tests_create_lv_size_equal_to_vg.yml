@@ -1,0 +1,45 @@
+---
+- name: Test lv size equal to vg
+  hosts: all
+  become: true
+  vars:
+    storage_safe_mode: false
+    mount_location: '/opt/test1'
+    volume_group_size: '10g'
+    lv_size: '10g'
+    __storage_min_size: "{{ volume_group_size }}"
+    __storage_max_return: 1
+  tags:
+    - tests::lvm
+
+  tasks:
+    - name: Prep storage role and discover unused disks
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: Create one lv which size is equal to vg size
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                size: "{{ lv_size }}"
+                mount_point: "{{ mount_location }}"
+
+    - name: Verify role results
+      include_tasks: verify-role-results.yml
+
+    - name: Clean up
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            state: "absent"
+            volumes:
+              - name: test1
+                mount_point: "{{ mount_location }}"
+
+    - name: Verify role results - 2
+      include_tasks: verify-role-results.yml

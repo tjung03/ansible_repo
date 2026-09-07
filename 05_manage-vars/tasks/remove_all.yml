@@ -1,0 +1,28 @@
+---
+# Task
+- name: 방화벽 서비스 제거 - {{ fw_svcs }}
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: disabled
+  loop: "{{ fw_svcs }}"
+
+- name: 서비스 종료 - {{ svcs }}
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  ignore_errors: true
+  loop: "{{ svcs }}"
+
+- name: 서비스 설정 삭제 - {{ files }}
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ files }}"
+
+- name: 패키지 삭제 - {{ pkgs }}
+  ansible.builtin.dnf:
+    name: "{{ pkgs }}"
+    state: absent

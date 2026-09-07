@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: MIT
+---
+
+- name: Ensure that the role configures dynamic dns
+  hosts: all,!ad
+  vars:
+    ad_integration_realm: sssd-custom-sample-realm.com
+    __ad_integration_test_sssd_config_only: true
+    ad_integration_sssd_custom_settings:
+      - key: auth_provider_test
+        value: ad
+      - key: override_shell_test
+        value: /bin/bash
+
+  tasks:
+    - name: Run test
+      block:
+        - name: Setup fake realm
+          include_tasks: tasks/manage_fake_realm.yml
+          vars:
+            __manage_fake_realm: setup
+
+        - name: Test - Run the system role with bogus vars
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+
+        - name: Check custom SSSD settings
+          community.general.ini_file:
+            path: "{{ __ad_integration_sssd_conf }}"
+            state: "{{ item.state | default('present') }}"
+            section: domain/{{ ad_integration_realm }}
+            option: "{{ item.key }}"
+            value: "{{ item.value }}"
+            create: true
+            owner: root
+            group: root
+            mode: u=rw,g=,o=
+          loop: "{{ ad_integration_sssd_custom_settings }}"
+          register: __result
+          failed_when: __result is changed
+
+        - name: Search /var/log/sssd/sssd.log for [sss_ini_call_validators]
+          command: >-
+            grep -i sss_ini_call_validators /var/log/sssd/sssd.log
+          register: sssd_log
+          changed_when: false
+          failed_when: false
+
+        - name: Fail if signature found
+          fail:
+            msg: Appears to be an unsupported option in /etc/sssd/sssd.conf
+          when: sssd_log.stdout | length > 0
+
+        - name: Test - Re-Build a list of settings with state=absent
+          set_fact:
+            update_list: "{{ ad_integration_sssd_custom_settings | map('combine', {'state': 'absent'}) | list }}"
+
+        - name: Test - Re-run the system role to remove vars
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            ad_integration_sssd_custom_settings: "{{ update_list }}"
+
+        - name: Check custom SSSD settings after removing vars
+          community.general.ini_file:
+            path: "{{ __ad_integration_sssd_conf }}"
+            state: "{{ item.state | default('present') }}"
+            section: domain/{{ ad_integration_realm }}
+            option: "{{ item.key }}"
+            value: "{{ item.value }}"
+            create: true
+            owner: root
+            group: root
+            mode: u=rw,g=,o=
+          loop: "{{ update_list }}"
+          register: __result
+          failed_when: __result is changed
+
+      always:
+        - name: Cleanup fake realm
+          include_tasks: tasks/manage_fake_realm.yml
+          vars:
+            __manage_fake_realm: cleanup

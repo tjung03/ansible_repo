@@ -1,0 +1,56 @@
+---
+##############################################################
+# Play 01:
+# 1) 웹 서버 패키지 설치 및 서비스 기동 - include_tasks
+# 2) 방화벽 패키지 설치 및 서비스 기동, 포트 등록 - import_tasks
+# 3) 웹 서버 설정(/var/www/html/index.html) - import_tasks
+# Play 02:
+# 4) 웹요청 - import_playbook
+##############################################################
+- name: 1. 웹 서버 설정
+  hosts: webservers
+  gather_facts: true
+  tasks:
+    # Play 01:
+    # 1) 웹 서버 패키지 설치 및 서비스 기동 - include_tasks
+    - name: 1-web) 웹서버 패키지 설치 및 서비스 기동 - include_tasks
+      ansible.builtin.include_tasks:
+        file: tasks/web.yml
+      vars:
+        pkg_webs:
+          - httpd
+          - mod_ssl
+        svc_web:
+          - httpd
+      when: ansible_os_family == "RedHat"
+
+    # 2) 방화벽 패키지 설치 및 서비스 기동, 포트 등록 - import_tasks
+    - name: 1-fw) 방화벽 패키지 설치 및 서비스 기동, 포트 등록 - import_tasks
+      ansible.builtin.import_tasks: tasks/fw.yml
+      vars:
+        pkg_fw: firewalld
+        svc_fw:
+          - firewalld
+        pt_opens:
+          - http
+          - https
+
+    # 3) 웹 서버 설정(/var/www/html/index.html) - import_tasks
+    - name: 1-file) 웹 서버 설정(/var/www/html/index.html) - import_tasks
+      ansible.builtin.import_tasks: tasks/placeholder.yml
+      vars:
+        file_web: /var/www/html/index.html
+
+# Play 02:
+# 4) 웹 요청 - import_playbook
+#- name: 2. 웹 요청 - import_playbook
+#  ansible.builtin.import_playbook: plays/test.yml
+#  vars:
+#    url_webs:
+#      - http://ansible1.example.com
+    #  - https://ansible1.example.com
+- import_playbook: plays/test.yml
+  vars:
+    url_webs:
+      - http://ansible1.example.com
+      - https://ansible1.example.com

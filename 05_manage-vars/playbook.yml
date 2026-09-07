@@ -1,0 +1,51 @@
+---
+- name: 웹/DB 서버 구축
+  hosts: web1
+  gather_facts: true
+  tasks:
+    #############################################################
+    # 1) 패키지 설치 - httpd, firewalld, mariadb-server, mariadb
+    # 2) 서비스 기동 - httpd, firewalld, mariadb
+    # 3) 서비스 설정 - /var/www/html/index.html
+    # 4) 방화벽 등록 - http(80/tcp), mysql(3306/tcp)
+    #############################################################
+    # 1) 패키지 설치 - httpd, firewalld, mariadb-server, mariadb
+    - name: 1) 패키지 설치 - httpd, firewalld, mariadb-server, mariadb
+      ansible.builtin.include_tasks:
+        file: tasks/installpkg.yml
+      vars:
+        pkgs:
+          - "{{ ansible_local.custom.pkgs.pkg_web }}"
+          - firewalld
+          - "{{ ansible_local.custom.pkgs.pkg_db }}"
+          - mariadb
+
+    # 2) 서비스 기동 - httpd, firewalld, mariadb
+    - name: 2) 서비스 기동 - httpd, firewalld, mariadb
+      ansible.builtin.include_tasks:
+        file: tasks/svc.yml
+      vars:
+        svcs:
+          - "{{ ansible_local.custom.svcs.svc_web }}"
+          - firewalld
+          - "{{ ansible_local.custom.svcs.svc_db }}"
+
+    # 3) 서비스 설정 - /var/www/html/index.html
+    - name: 3) 서비스 설정 - /var/www/html/index.html
+      ansible.builtin.copy:
+        content: |
+          <pre>
+          <h1>
+          {{ ansible_fqdn }}({{ ansible_default_ipv4.address }}) has been customized by Ansible
+          </h1>
+          </pre>
+        dest: /var/www/html/index.html
+
+    # 4) 방화벽 등록 - http(80/tcp), mysql(3306/tcp)
+    - name: 4) 방화벽 등록 - http(80/tcp), mysql(3306/tcp)
+      ansible.builtin.include_tasks:
+        file: tasks/fw.yml
+      vars:
+        fw_svcs:
+          - http
+          - mysql

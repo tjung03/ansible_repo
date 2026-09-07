@@ -1,0 +1,25 @@
+---
+- name: Restore original /etc/selinux/config
+  copy:
+    remote_src: true
+    dest: /etc/selinux/config
+    src: /etc/selinux/config.test_selinux_save
+    mode: preserve
+    selevel: _default
+    serole: _default
+    setype: _default
+    seuser: _default
+  register: restorecon
+
+- name: Remove /etc/selinux/config backup
+  file:
+    path: /etc/selinux/config.test_selinux_save
+    state: absent
+
+- name: Reboot
+  when: restorecon is changed # noqa no-handler
+  reboot:
+    msg: Ansible updates triggered
+    pre_reboot_delay: 2
+    post_reboot_delay: 10
+    reboot_timeout: 300

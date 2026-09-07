@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: MIT
+---
+
+# Search for existing cluster configuration files to determine if cluster is intact.
+# Followup logic is split into full and partial cleanups, depending on presence of these files.
+- name: Get stat of cluster configuration files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/corosync/corosync.conf
+    - /var/lib/pacemaker/cib/cib.xml
+  register: __ha_cluster_config_files_stat
+
+# We have to remove QDevice configuration before destroying the cluster.
+# Otherwise, QNetd host will not accept cluster with same name.
+- name: Remove existing QDevice configuration
+  ansible.builtin.command:
+    cmd: crm cluster remove --qdevice --force --yes
+  register: __ha_cluster_remove_qdevice
+  check_mode: false
+# Execute only if all files are present, indicating intact cluster.
+  when: __ha_cluster_config_files_stat.results | selectattr('stat.exists', 'equalto', false) | list | length == 0
+  failed_when:
+  # Avoid failure if there is no QDevice configuration in the cluster.
+    - "'No QDevice configuration in this cluster' not in __ha_cluster_remove_qdevice.stderr"
+    - __ha_cluster_remove_qdevice.rc != 0
+  ignore_errors: true
+  changed_when: __ha_cluster_remove_qdevice.rc == 0
+  run_once: true
+
+- name: Stop cluster
+  ansible.builtin.command:
+    cmd: crm cluster stop
+# Execute only if all files are present, indicating intact cluster.
+  when: __ha_cluster_config_files_stat.results | selectattr('stat.exists', 'equalto', false) | list | length == 0
+  changed_when: true
+
+- name: Populate service facts
+  ansible.builtin.service_facts:
+  no_log: "{{ ansible_verbosity < 2 }}"
+
+# Conditional added to skip qdevice in case qdevice was not configured
+- name: Stop cluster daemons
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: stopped # noqa no-handler
+  loop:
+    - pacemaker.service
+    - corosync.service
+    - corosync-qdevice.service
+  when: item in ansible_facts.services
+
+- name: Backup configuration files by renaming to _backup
+  ansible.builtin.copy:
+    src: "{{ config_file.item }}"
+    dest: "/root/{{ config_file.stat.path | basename }}_backup"
+    owner: root
+    group: root
+    mode: '0600'
+    remote_src: true
+    backup: true
+  loop: "{{ __ha_cluster_config_files_stat.results }}"
+  loop_control:
+    loop_var: config_file
+  when: config_file.stat.exists
+
+- name: Remove cluster configuration files
+  ansible.builtin.file:
+    path: "{{ config_file.item }}"
+    state: absent
+  loop: "{{ __ha_cluster_config_files_stat.results }}"
+  loop_control:
+    loop_var: config_file
+  when: config_file.stat.exists
+
+- name: Remove all files in /var/lib/pacemaker/cib/
+  ansible.builtin.shell:
+    cmd: 'rm -f /var/lib/pacemaker/cib/{cib*,shadow*}'
+  changed_when: true
+
+# SBD Cleanup
+- name: Block for SBD cleanup
+  when: ha_cluster_sbd_enabled | d(false)
+  block:
+    - name: Disable SBD service
+      ansible.builtin.service:
+        name: sbd
+        enabled: false
+      when: '"sbd.service" in ansible_facts.services'
+
+    - name: Remove SBD configuration file
+      ansible.builtin.file:
+        path: "/etc/sysconfig/sbd"
+        state: absent

@@ -1,0 +1,76 @@
+---
+- name: 0) 웹서버 구축 - 변수 테스트
+  hosts: webservers
+  # 플레이북 변수
+  vars:
+    pkg_http: httpd
+    pkg_https: mod_ssl
+    pkg_fw: firewalld
+    file_index: /var/www/html/index.html
+    svc_web: httpd
+    svc_fw: firewalld
+    fw_http: http
+    fw_https: https
+  tasks:
+    ###############################################
+    # 1) 패키지 설치 - httpd, mod_ssl, firewalld
+    # 2) 서비스 설정 - /var/www/html/index.html
+    #   * /etc/httpd/conf/httpd.conf, /etc/httpd/conf.d/*.conf
+    #   * /var/www/html/*
+    # 3) 서비스 기동 - httpd, firewalld
+    # 4) 방화벽 등록 - http(80/tcp), https(443/tcp)
+    # 5) SELinux 설정
+    ###############################################
+    # 1) 패키지 설치 - httpd, mod_ssl, firewalld
+    - name: 1) 패키지 설치 - {{ pkg_http }}, {{ pkg_https }}, {{ pkg_fw }}
+      ansible.builtin.dnf:
+        name:
+          - "{{ pkg_http }}"
+          - "{{ pkg_https }}"
+          - "{{ pkg_fw }}"
+        state: present
+
+    # 2) 서비스 설정 - /var/www/html/index.html
+    - name: 2) 서비스 설정 - {{ file_index }}
+      ansible.builtin.copy:
+        content: "My Web Server - {{ file_index }}\n"
+        dest: "{{ file_index }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+    # 3) 서비스 기동 - httpd, firewalld
+    - name: 3) 서비스 기동 - {{ svc_web }}, {{ svc_fw }}
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - "{{ svc_web }}"
+        - "{{ svc_fw }}"
+
+    # 4) 방화벽 등록 - http(80/tcp), https(443/tcp)
+    - name: 4) 방화벽 등록 - {{ fw_http }}, {{ fw_https }}
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: enabled
+      loop:
+        - "{{ fw_http }}"
+        - "{{ fw_https }}"
+
+
+- name: 0) 웹 서비스 확인
+  hosts: localhost
+  tasks:
+    - name: 1) 웹 서비스 확인
+      ansible.builtin.uri:
+        url: "http://web1.example.com/index.html"
+        return_content: yes
+        status_code: 200
+      register: result
+
+    - name: 2) 결과 출력
+      ansible.builtin.debug:
+        var: result.content

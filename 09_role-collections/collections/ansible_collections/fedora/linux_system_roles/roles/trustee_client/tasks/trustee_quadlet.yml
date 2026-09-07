@@ -1,0 +1,90 @@
+---
+- name: Ensure required packages are installed
+  ansible.builtin.package:
+    name: "{{ __trustee_client_trustee_gc_packages }}"
+    state: present
+    use: "{{ (__trustee_client_is_ostree | d(false)) | ternary('ansible.posix.rhel_rpm_ostree', omit) }}"
+
+- name: Ensure quadlet install directory exists
+  ansible.builtin.file:
+    path: "{{ __trustee_client_quadlet_install_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy Trustee Guest Components quadlet files to install directory
+  ansible.builtin.copy:
+    src: files/quadlet/
+    dest: "{{ __trustee_client_quadlet_install_dir }}/"
+    mode: "0644"
+
+- name: Copy Trustee Guest aa Components config files to /etc/trustee-gc/
+  ansible.builtin.copy:
+    src: files/configs/aa
+    dest: /etc/trustee-gc/
+    directory_mode: "0755"
+    mode: "0644"
+
+- name: Copy Trustee Guest cdh Components config files to /etc/trustee-gc/
+  ansible.builtin.copy:
+    src: files/configs/cdh
+    dest: /etc/trustee-gc/
+    directory_mode: "0755"
+    mode: "0644"
+
+- name: Set KBS cert content from path or explicit content
+  ansible.builtin.set_fact:
+    __trustee_client_kbs_cert_content: "{{ trustee_client_kbs_cert_content if (trustee_client_kbs_cert_content | length > 0) else lookup('file', trustee_client_kbs_cert_src) if (trustee_client_kbs_cert_src | length > 0) else '' }}"
+
+- name: Replace KBS_URL in config.toml files
+  ansible.builtin.replace:
+    path: "{{ item }}"
+    regexp: KBS_URL
+    replace: "{{ trustee_client_kbs_url }}"
+  loop:
+    - /etc/trustee-gc/cdh/config.toml
+    - /etc/trustee-gc/aa/config.toml
+  when: trustee_client_kbs_url | length > 0
+
+- name: Replace KBS_CERT in config.toml files
+  ansible.builtin.replace:
+    path: "{{ item }}"
+    regexp: KBS_CERT
+    replace: "{{ __trustee_client_kbs_cert_content }}"
+  loop:
+    - /etc/trustee-gc/cdh/config.toml
+    - /etc/trustee-gc/aa/config.toml
+  when: __trustee_client_kbs_cert_content | length > 0
+
+- name: Write KBS certificate to /etc/trustee-gc/server.crt
+  ansible.builtin.copy:
+    content: "{{ __trustee_client_kbs_cert_content }}"
+    dest: /etc/trustee-gc/server.crt
+    mode: "0644"
+  when: __trustee_client_kbs_cert_content | length > 0
+
+- name: Stat /dev/sev-guest device
+  ansible.builtin.stat:
+    path: /dev/sev-guest
+  register: __sev_guest_device
+
+- name: Add /dev/sev-guest to trustee-gc-aa.container when device exists
+  ansible.builtin.replace:
+    path: "{{ __trustee_client_quadlet_install_dir }}/trustee-gc-aa.container"
+    regexp: '^#AddDevice=/dev/sev-guest'
+    replace: 'AddDevice=/dev/sev-guest'
+  when: __sev_guest_device.stat.exists
+
+- name: Get the installed Trustee Guest Components pod name
+  ansible.builtin.find:
+    paths: "{{ __trustee_client_quadlet_install_dir }}"
+    patterns: "*.pod"
+  register: trustee_gc_pod_name
+
+- name: Enable and start Trustee Guest Components services
+  ansible.builtin.systemd:
+    name: "{{ trustee_gc_pod_name.files[0].path | basename | regex_replace('\\.pod$', '') }}-pod.service"
+    enabled: true
+    state: restarted
+    daemon_reload: true
+  when: trustee_gc_pod_name.files | length > 0
+  failed_when: false

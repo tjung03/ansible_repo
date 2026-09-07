@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: MIT
+---
+# loginuid immutability requires a reboot to clear; exercises auditd_reboot_ok and
+# auditd_reboot_required (see tasks/loginuid_immutable.yml).
+- name: Test loginuid immutable and reboot behavior
+  hosts: all
+  tags:
+    - tests::reboot
+  tasks:
+    - name: Exercise loginuid immutable transitions and reboot handling
+      block:
+        - name: Back up existing auditd configuration and rules
+          ansible.builtin.include_tasks: tasks/setup.yml
+
+        - name: Run role with loginuid immutable enabled
+          ansible.builtin.include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            auditd_loginuid_immutable: true
+            auditd_rules: []
+
+        - name: Flush handlers after role
+          ansible.builtin.meta: flush_handlers
+
+        - name: Check auditctl reports loginuid immutable
+          ansible.builtin.command: auditctl -s
+          changed_when: false
+          register: __auditd_loginuid_status_on
+
+        - name: Assert kernel has loginuid immutable active
+          ansible.builtin.assert:
+            that:
+              - __auditd_loginuid_status_on.rc == 0
+              - __auditd_loginuid_status_on.stdout is search('loginuid_immutable 1')
+
+        - name: Record uptime before run that must not reboot
+          ansible.builtin.command: awk '{print $1}' /proc/uptime
+          changed_when: false
+          register: __auditd_uptime_before_no_reboot
+
+        - name: Run role requesting immutable off without consent to reboot
+          ansible.builtin.include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            auditd_loginuid_immutable: false
+            auditd_reboot_ok: false
+            auditd_rules: []
+
+        - name: Flush handlers after role
+          ansible.builtin.meta: flush_handlers
+
+        - name: Assert role signals reboot is required
+          ansible.builtin.assert:
+            that:
+              - auditd_reboot_required | bool
+            fail_msg: >-
+              Expected auditd_reboot_required true when loginuid is immutable and
+              auditd_reboot_ok is false
+
+        - name: Record uptime after run that must not reboot
+          ansible.builtin.command: awk '{print $1}' /proc/uptime
+          changed_when: false
+          register: __auditd_uptime_after_no_reboot
+
+        - name: Assert host did not reboot between uptime samples
+          ansible.builtin.assert:
+            that:
+              - __auditd_uptime_after_no_reboot.stdout | float > __auditd_uptime_before_no_reboot.stdout | float
+            fail_msg: >-
+              Uptime should increase when no reboot is performed (before {{
+              __auditd_uptime_before_no_reboot.stdout }}, after {{
+              __auditd_uptime_after_no_reboot.stdout }})
+
+        - name: Record uptime before run that should reboot
+          ansible.builtin.command: awk '{print $1}' /proc/uptime
+          changed_when: false
+          register: __auditd_uptime_before_reboot
+
+        - name: Run role requesting immutable off with reboot allowed
+          ansible.builtin.include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            auditd_loginuid_immutable: false
+            auditd_reboot_ok: true
+            auditd_rules: []
+
+        - name: Flush handlers after role
+          ansible.builtin.meta: flush_handlers
+
+        - name: Assert role does not require another reboot
+          ansible.builtin.assert:
+            that:
+              - not (auditd_reboot_required | bool)
+            fail_msg: >-
+              Expected auditd_reboot_required false after reboot cleared loginuid
+              immutability
+
+        - name: Record uptime after run that should have rebooted
+          ansible.builtin.command: awk '{print $1}' /proc/uptime
+          changed_when: false
+          register: __auditd_uptime_after_reboot
+
+        - name: Assert host rebooted (uptime reset)
+          ansible.builtin.assert:
+            that:
+              - __auditd_uptime_after_reboot.stdout | float < __auditd_uptime_before_reboot.stdout | float
+            fail_msg: >-
+              Expected lower uptime after reboot (before {{
+              __auditd_uptime_before_reboot.stdout }}, after {{
+              __auditd_uptime_after_reboot.stdout }})
+
+        - name: Check auditctl reports loginuid not immutable
+          ansible.builtin.command: auditctl -s
+          changed_when: false
+          register: __auditd_loginuid_status_off
+
+        - name: Assert kernel loginuid immutability is cleared
+          ansible.builtin.assert:
+            that:
+              - __auditd_loginuid_status_off.rc == 0
+              - __auditd_loginuid_status_off.stdout is search('loginuid_immutable 0')
+
+      always:
+        - name: Restore system state after loginuid reboot test
+          ansible.builtin.include_tasks: tasks/cleanup.yml
+          tags: tests::cleanup

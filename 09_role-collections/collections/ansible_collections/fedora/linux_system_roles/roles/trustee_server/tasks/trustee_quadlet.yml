@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Ensure required packages are installed
+  ansible.builtin.package:
+    name: "{{ __trustee_server_trustee_packages }}"
+    state: present
+    use: "{{ (__trustee_server_is_ostree | d(false)) | ternary('ansible.posix.rhel_rpm_ostree', omit) }}"
+
+- name: Ensure quadlet install directory exists
+  ansible.builtin.file:
+    path: "{{ __trustee_server_quadlet_install_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy Trustee Server quadlet files to install directory
+  ansible.builtin.copy:
+    src: quadlet/
+    dest: "{{ __trustee_server_quadlet_install_dir }}/"
+    mode: "0644"
+
+- name: Ensure Trustee Server config directory exists
+  ansible.builtin.file:
+    path: "{{ __trustee_server_config_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Copy Trustee Server config files to config directory
+  ansible.builtin.copy:
+    src: configs/{{ item }}
+    dest: "{{ __trustee_server_config_dir }}"
+    mode: "0644"
+    directory_mode: "0755"
+  loop: [as, kbs, rvps]
+
+- name: Generate certificates for all components
+  ansible.builtin.shell: |
+    # Trustee Server SSL
+    if [ ! -f {{ __trustee_server_config_dir }}/kbs/server.key ] || [ ! -f {{ __trustee_server_config_dir }}/kbs/server.crt ]; then
+      openssl req -x509 -newkey rsa:2048 -nodes -keyout {{ __trustee_server_config_dir }}/kbs/server.key \
+        -subj "/CN=$(hostname -f)/O=Red Hat" \
+        -addext "basicConstraints=CA:FALSE" \
+        -addext "keyUsage=digitalSignature,keyEncipherment" \
+        -addext "extendedKeyUsage=serverAuth" \
+        -addext "subjectAltName=DNS:$(hostname -f)" \
+        -out {{ __trustee_server_config_dir }}/kbs/server.crt
+    fi
+    # KBS authentication key pair
+    if [ ! -f {{ __trustee_server_config_dir }}/kbs/auth.key ] || [ ! -f {{ __trustee_server_config_dir }}/kbs/auth.pub ]; then
+      openssl genpkey -algorithm ed25519 -out {{ __trustee_server_config_dir }}/kbs/auth.key
+      openssl pkey -in {{ __trustee_server_config_dir }}/kbs/auth.key -pubout -out {{ __trustee_server_config_dir }}/kbs/auth.pub
+    fi
+    # Attestation Service token signer key pair
+    if [ ! -f {{ __trustee_server_config_dir }}/as/token.key ] || [ ! -f {{ __trustee_server_config_dir }}/as/token.crt ]; then
+      openssl ecparam -name prime256v1 -genkey -noout -out {{ __trustee_server_config_dir }}/as/token.key
+      openssl req -new -x509 -key {{ __trustee_server_config_dir }}/as/token.key \
+        -out {{ __trustee_server_config_dir }}/as/token.crt -days 3550 \
+        -subj "/CN=as-token-signer/O=Red Hat"
+      mkdir -p {{ __trustee_server_config_dir }}/kbs/trusted_certs
+      cp {{ __trustee_server_config_dir }}/as/token.crt {{ __trustee_server_config_dir }}/kbs/trusted_certs/token0.crt
+    fi
+  changed_when: true
+  no_log: "{{ trustee_server_secure_logging }}"
+
+- name: Allow port 8080 in firewall
+  ansible.builtin.include_role:
+    name: fedora.linux_system_roles.firewall
+  vars:
+    firewall:
+      - port: "8080/tcp"
+        permanent: true
+        runtime: true
+        state: enabled
+
+- name: Get the installed Trustee Server pod name
+  ansible.builtin.find:
+    paths: "{{ __trustee_server_quadlet_install_dir }}"
+    patterns: "*.pod"
+  register: __trustee_server_pod_name
+
+- name: Enable and start Trustee Server services
+  ansible.builtin.systemd:
+    name: "{{ __trustee_server_pod_name.files[0].path | basename | replace('.pod', '-pod.service') }}"
+    enabled: true
+    state: restarted
+    daemon_reload: true
+  when: __trustee_server_pod_name.files | length > 0
+  failed_when: false
+
+# TODO keep the server.crt and DNS names in the role variables

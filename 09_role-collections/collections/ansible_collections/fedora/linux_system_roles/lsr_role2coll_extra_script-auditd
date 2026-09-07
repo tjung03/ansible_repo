@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+if [ -n "${LSR_DEBUG:-}" ]; then
+  set -x
+fi
+
+# if it's already fqcn, don't replace it
+fqcn="$LSR_NAMESPACE.$LSR_COLLECTION.auditd_scalar_or_mixed_list"
+find tasks templates -type f \
+  -exec sed -i "s/\([ 	]\)auditd_scalar_or_mixed_list\>/\1$fqcn/g" \
+  {} \;
+fqcn="$LSR_NAMESPACE.$LSR_COLLECTION.auditd_non_empty_str_or_list"
+find tasks templates -type f \
+  -exec sed -i "s/\([ 	]\)auditd_non_empty_str_or_list\>/\1$fqcn/g" \
+  {} \;

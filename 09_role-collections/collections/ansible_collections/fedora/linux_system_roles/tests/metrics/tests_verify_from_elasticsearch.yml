@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Test import from Elasticsearch
+  hosts: all
+  vars:
+    metrics_from_elasticsearch: true
+
+  pre_tasks:
+    - name: Stop test
+      meta: end_host
+      when: (ansible_facts['distribution'] in ['RedHat', 'CentOS'] and ansible_facts['distribution_major_version'] | int < 7) or ansible_facts['distribution'] not in ['Fedora', 'RedHat', 'CentOS']
+
+    - name: Save state of services
+      import_tasks: get_services_state.yml
+
+  tasks:
+    - name: Run test
+      block:
+        - name: Run the metrics role to configure Elasticsearch
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+
+        - name: Flush handlers
+          meta: flush_handlers
+
+        - name: Check if import from Elasticsearch works
+          include_tasks: check_from_elasticsearch.yml
+
+      rescue:
+        - name: Handle failure case
+          include_tasks: handle_test_failure.yml
+
+      always:
+        - name: Restore state of services
+          import_tasks: restore_services_state.yml

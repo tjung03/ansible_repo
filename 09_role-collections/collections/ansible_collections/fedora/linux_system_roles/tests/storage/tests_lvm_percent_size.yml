@@ -1,0 +1,181 @@
+---
+- name: Test specifying size as a percentage
+  hosts: all
+  become: true
+  vars:
+    storage_safe_mode: false
+    mount_location1: '/opt/test1'
+    mount_location2: '/opt/test2'
+    volume_group_size: '10g'
+    size1: "60%"
+    size2: "40%"
+    size3: "25%"
+    size4: "50%"
+    __storage_min_size: "{{ volume_group_size }}"
+    __storage_max_return: 1
+  tags:
+    - tests::lvm
+  tasks:
+    - name: Prep storage role and discover unused disks
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: >-
+        Test for correct handling of invalid percentage-based size
+        specification.
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_regex: invalid percentage
+        __storage_failed_msg: >-
+          Unexpected error message output from invalid percentage size input
+        __storage_failed_params:
+          storage_pools:
+            - name: foo
+              disks: "{{ unused_disks }}"
+              volumes:
+                - name: test1
+                  size: "2x%"
+                  mount_point: "{{ mount_location1 }}"
+
+    - name: >-
+        Create two LVM logical volumes under volume group 'foo' using percentage
+        sizes
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                size: "{{ size1 }}"
+                mount_point: "{{ mount_location1 }}"
+              - name: test2
+                size: "{{ size2 }}"
+                mount_point: "{{ mount_location2 }}"
+                fs_type: ext4
+
+    - name: Verify role results
+      include_tasks: verify-role-results.yml
+
+    - name: Repeat the previous invocation to verify idempotence
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                size: "{{ size1 }}"
+                mount_point: "{{ mount_location1 }}"
+              - name: test2
+                size: "{{ size2 }}"
+                mount_point: "{{ mount_location2 }}"
+
+    - name: Verify role results - 2
+      include_tasks: verify-role-results.yml
+
+    - name: Shrink test2 volume via percentage-based size spec
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                size: "{{ size1 }}"
+                mount_point: "{{ mount_location1 }}"
+              - name: test2
+                size: "{{ size3 }}"
+                mount_point: "{{ mount_location2 }}"
+
+    - name: Verify role results - 3
+      include_tasks: verify-role-results.yml
+
+    - name: Get the size of test2 volume
+      command: lsblk --noheadings -o SIZE /dev/mapper/foo-test2
+      register: storage_test_test1_size_1
+      changed_when: false
+
+    - name: Remove the test1 volume without changing its size
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            state: present
+            volumes:
+              - name: test1
+                size: "{{ size1 }}"
+                mount_point: "{{ mount_location1 }}"
+                state: absent
+              - name: test2
+                size: "{{ size3 }}"
+                mount_point: "{{ mount_location2 }}"
+
+    - name: Verify role results - 4
+      include_tasks: verify-role-results.yml
+
+    - name: Get the size of test2 volume again
+      command: lsblk --noheadings -o SIZE /dev/mapper/foo-test2
+      register: storage_test_test1_size_2
+      changed_when: false
+
+    - name: Verify that removing test1 didn't cause a change in test2 size
+      assert:
+        that: storage_test_test1_size_1.stdout == storage_test_test1_size_2.stdout
+
+    - name: Grow test2 using a percentage-based size spec
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            state: "present"
+            volumes:
+              - name: test2
+                size: "{{ size4 }}"
+                mount_point: "{{ mount_location2 }}"
+
+    - name: Verify role results - 5
+      include_tasks: verify-role-results.yml
+
+    - name: Remove both of the LVM logical volumes in 'foo' created above
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            state: absent
+
+    - name: Verify role results - 6
+      include_tasks: verify-role-results.yml
+
+    - name: Create an LVM logical volume with no size specified
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: test_no_size_pool
+            disks: "{{ unused_disks }}"
+            type: lvm
+            volumes:
+              - name: test_no_size_volume
+                fs_type: ext4
+
+    - name: Fixup the volume size to be 100% of the pool for verification purposes
+      set_fact:
+        _storage_pools_list: "{{ _storage_pools_list | map('combine', {'volumes': fixed_volumes}) | list }}"
+      vars:
+        fixed_volumes: "{{ _storage_pools_list[0].volumes | map('combine', {'size': '100%'}) | list }}"
+
+    - name: Verify role results - 7
+      include_tasks: verify-role-results.yml
+
+    - name: Remove the LVM logical volume in 'test_no_size_pool' created above
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: test_no_size_pool
+            disks: "{{ unused_disks }}"
+            state: absent
+
+    - name: Verify role results - 8
+      include_tasks: verify-role-results.yml

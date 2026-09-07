@@ -1,0 +1,19 @@
+---
+- name: Managed Host Power Off
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Managed Host Power Off
+      community.general.shutdown:
+        delay: 2
+
+- name: Control Node Power Off
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  tasks:
+  - name: Control Node Power Off
+    ansible.builtin.command:
+      cmd: shutdown -h now

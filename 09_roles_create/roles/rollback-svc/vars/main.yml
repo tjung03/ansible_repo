@@ -1,0 +1,18 @@
+---
+# vars file for roles/rollback-svc
+# 제거하고 싶은 방화벽 서비스 이름 지정
+fw_svcs:
+  - http
+  - https
+# 종료하고 싶은 서비스 이름 지정
+svcs:
+  - httpd
+  - firewalld
+# 삭제하고 싶은 파일/디렉토리 지정
+files:
+  - /var/www/vhosts
+  - /etc/httpd/conf.d/vhost.conf
+# 삭제하고 싶은 패키지 지정
+pkgs:
+  - httpd
+  - mod_ssl

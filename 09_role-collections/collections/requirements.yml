@@ -1,0 +1,8 @@
+---
+collections:
+  - name: community.crypto
+
+  - name: /home/ansible/ansible/09_role-collections/ansible-posix-2.2.0.tar.gz
+
+  - name: http://ansible.example.com/fedora-linux_system_roles-1.125.3.tar.gz
+

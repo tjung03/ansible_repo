@@ -1,0 +1,10 @@
+<VirtualHost *:80>
+  ServerAdmin webmaster@{{ ansible_fqdn }}
+  ServerName {{ ansible_fqdn }}
+  DocumentRoot /var/www/vhosts/{{ inventory_hostname }}/
+
+  <Directory /var/www/vhosts/{{ inventory_hostname }}>
+    Require all granted
+  </Directory>
+
+</VirtualHost>

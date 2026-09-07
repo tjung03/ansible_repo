@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Ensure that the role runs with default parameters
+  hosts: all
+  tasks:
+    - name: See if /dev/log exists for the fingerprint check
+      ansible.builtin.stat:
+        path: /dev/log
+      register: __register_dev_log
+
+    - name: Set the start time for the journal search
+      ansible.builtin.set_fact:
+        __journal_start_time: "{{ ansible_facts['date_time']['date'] ~ ' ' ~ ansible_facts['date_time']['time'] }}"
+      when: __register_dev_log.stat.exists
+
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+
+  # look for the exact module invocation, not some other message that might contain the string
+    - name: Check system journal contains role fingerprints
+      ansible.builtin.shell:
+        executable: /bin/bash
+        cmd: >-
+          set -eo pipefail;
+          journalctl --since "{{ __journal_start_time }}" --no-pager |
+          grep -v " Invoked with" | grep "sr_fingerprint.*begin system_role:journald" ||
+          { echo ERROR: BEGIN fingerprint not found; exit 1; };
+          journalctl --since "{{ __journal_start_time }}" --no-pager |
+          grep -v " Invoked with" | grep "sr_fingerprint.*success system_role:journald" ||
+          { echo ERROR: SUCCESS fingerprint not found; exit 1; }
+      changed_when: false
+      when: __register_dev_log.stat.exists
+
+  # Make sure services are restarted before we verify system state is correct
+    - name: Flush handlers
+      meta: flush_handlers
+
+    - name: Get systemd-journald service state
+      command:
+      # noqa command-instead-of-module
+        cmd: systemctl show --property SubState systemd-journald.service
+      register: systemctl
+      changed_when: false
+
+    - name: Verify that systemd-journald is running
+      assert:
+        that: systemctl.stdout == 'SubState=running'
+
+    - name: Verify that /run/log/journal/$MACHINE_ID/system.journal exists
+      stat:
+        path: /run/log/journal/{{ ansible_facts['machine_id'] }}/system.journal
+      register: __stat
+      failed_when: not __stat.stat.exists
+
+    - name: Verify that system.journal is in online state
+      shell:
+        cmd: >
+          set -euo pipefail;
+          journalctl --header
+          --file /run/log/journal/{{ ansible_facts['machine_id'] }}/system.journal |
+          grep -q 'State: ONLINE'
+      changed_when: false
+
+    - name: Verify that system.journal is compressed
+      shell:
+        cmd: >
+          set -euo pipefail;
+          journalctl --header
+          --file /run/log/journal/{{ ansible_facts['machine_id'] }}/system.journal |
+          grep -q COMPRESSED
+      changed_when: false

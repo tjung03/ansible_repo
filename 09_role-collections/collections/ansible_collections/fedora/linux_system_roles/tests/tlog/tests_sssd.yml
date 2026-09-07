@@ -1,0 +1,96 @@
+---
+- name: Run tlog-SSSD configuration tests
+  hosts: all
+
+  tasks:
+    - name: Test setup and check for ostree
+      include_tasks: tasks/setup.yml
+
+    - name: Run role with default sssd settings
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        __sr_public: true
+      when: not __bootc_validation | d(false)
+
+    - name: Run role only to load facts and role private variables for bootc validation
+      include_role:
+        name: fedora.linux_system_roles.tlog
+        tasks_from: set_vars.yml
+        public: true
+      when: __bootc_validation | d(false)
+
+    - name: Create QEMU deployment during bootc end-to-end test
+      delegate_to: localhost
+      become: false
+      command: "{{ lsr_scriptdir }}/bootc-buildah-qcow.sh {{ ansible_host }}"
+      changed_when: true
+      when: ansible_connection == "buildah"
+
+    - name: Run sssd tests
+      import_tasks: run_sssd_tests.yml
+
+    - name: Test role with tlog_scope_sssd all
+      vars:
+        tlog_scope_sssd: all
+      block:
+        - name: Run role
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+
+        - name: Check sssd authselect with tlog setup properly
+          import_tasks: check_sssd_with_tlog.yml
+
+        - name: Run sssd tests
+          import_tasks: run_sssd_tests.yml
+
+        - name: Check authselect files provider setup properly
+          import_tasks: check_sssd_files_provider.yml
+
+    - name: Test role with tlog_scope_sssd some
+      vars:
+        tlog_scope_sssd: some
+        tlog_users_sssd:
+          - mike
+          - john
+        tlog_groups_sssd:
+          - teachers
+          - students
+      block:
+        - name: Run role
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+
+        - name: Run sssd tests
+          import_tasks: run_sssd_tests.yml
+
+    - name: Test role with excluded users and groups
+      vars:
+        tlog_scope_sssd: all
+        tlog_exclude_users_sssd:
+          - jeff
+          - james
+        tlog_exclude_groups_sssd:
+          - admins
+      block:
+        - name: Run role
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+
+        - name: Run sssd tests
+          import_tasks: run_sssd_tests.yml
+
+    - name: Check for ansible_managed, fingerprint in generated files
+      include_tasks: tasks/check_header.yml
+      vars:
+        __file: "{{ __tlog_sssd_session_recording_conf }}"
+        __fingerprint: "system_role:tlog"
+
+    - name: Check for ansible_managed, fingerprint in generated files - 2
+      include_tasks: tasks/check_header.yml
+      vars:
+        __file: "{{ __tlog_rec_session_conf }}"
+        __fingerprint: "system_role:tlog"
+        __comment_type: c

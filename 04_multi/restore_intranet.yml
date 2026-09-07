@@ -1,0 +1,29 @@
+---
+- name: Restore_intranet.yml
+  hosts: all
+  tasks:
+    - name: 1) firewall에서 http 서비스 제거
+      ansible.posix.firewalld:
+        service: http
+        permanent: true
+        immediate: true
+        state: disabled
+
+    - name: 2) 서비스 제거
+      ansible.builtin.service:
+        name: httpd
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: 3) 웹 파일 삭제
+      ansible.builtin.file:
+        path: /var/www/html/index.html
+        state: absent
+      ignore_errors: true
+
+    - name: 4) 패키지 삭제
+      ansible.builtin.yum:
+        name: httpd
+        state: absent
+      ignore_errors: true

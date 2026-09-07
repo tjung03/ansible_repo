@@ -1,0 +1,11 @@
+---
+- name: 0) 사용자 정의 팩트 배포
+  hosts: web1
+  gather_facts: false
+  tasks:
+    - name: 1) 팩트 배포
+      ansible.builtin.include_tasks:
+        file: tasks/setup_facts_tasks.yml
+      vars:
+        dir_src_fact: files
+        file_src_fact: custom.fact

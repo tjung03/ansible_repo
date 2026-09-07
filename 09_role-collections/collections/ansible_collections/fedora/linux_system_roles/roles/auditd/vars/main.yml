@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: MIT
+---
+# Internal variables (see defaults/main.yml for public role API).
+
+__auditd_packages_map:
+  default:
+    - audit
+  Debian:
+    - auditd
+
+__auditd_config_directory: /etc/audit
+__auditd_config_file: auditd.conf
+__auditd_service: auditd
+__auditd_rules_file: "{{ __auditd_config_directory }}/rules.d/custom.rules"
+
+__auditd_permissions:
+  read: r
+  write: w
+  execute: x
+  attribute_change: a
+
+# auditd_rules validation (see tasks/assert_auditd_rules.yml, README.md)
+__auditd_rules_actions:
+  - always
+  - never
+__auditd_rules_filters:
+  - exclude
+  - exit
+  - filesystem
+  - io_uring
+  - task
+  - user
+__auditd_rules_field_operator_regex: >-
+  ^[A-Za-z_][A-Za-z0-9_]*(!=|<=|>=|&=|[=<>!&]).+$
+__auditd_rules_filesystem_fstype_regex: '^fstype=(debugfs|tracefs)$'
+__auditd_rules_permission_keys:
+  - read
+  - write
+  - execute
+  - attribute_change
+  - nowarn
+
+__auditd_required_facts:
+  - distribution
+  - distribution_major_version
+  - distribution_version
+  - os_family
+
+__auditd_required_facts_subsets: "{{ ['!all', '!min'] + __auditd_required_facts }}"
+
+# BEGIN - DO NOT EDIT THIS BLOCK - rh distros variables
+# Ansible distribution identifiers that the role treats like RHEL
+__auditd_rh_distros:
+  - AlmaLinux
+  - CentOS
+  - RedHat
+  - Rocky
+
+# Same as above but includes Fedora
+__auditd_rh_distros_fedora: "{{ __auditd_rh_distros + ['Fedora'] }}"
+
+# Use this in conditionals to check if distro is Red Hat or clone
+__auditd_is_rh_distro: "{{ ansible_facts['distribution'] in __auditd_rh_distros }}"
+
+# Use this in conditionals to check if distro is Red Hat or clone, or Fedora
+__auditd_is_rh_distro_fedora: "{{ ansible_facts['distribution'] in __auditd_rh_distros_fedora }}"
+# END - DO NOT EDIT THIS BLOCK - rh distros variables

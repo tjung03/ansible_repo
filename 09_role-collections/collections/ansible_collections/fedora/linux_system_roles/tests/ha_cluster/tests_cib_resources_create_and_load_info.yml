@@ -1,0 +1,474 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Create resources in a cluster and load them to info
+  hosts: all
+  gather_facts: true # needs facts
+  vars_files: vars/main.yml
+  vars:
+    __required_capability: pcmk.resource.config.output-formats
+    __old_clone_roles: >-
+      {{
+        (
+          ansible_facts['distribution'] in ['RedHat', 'CentOS']
+          and
+          ansible_facts['distribution_major_version'] == '8'
+        ) | bool
+      }}
+  # wokeignore:rule=master
+    __mstr: Master
+  # wokeignore:rule=slave
+    __slv: Slave
+    __promoted: "{{__old_clone_roles | ternary(__mstr, 'Promoted') }}"
+    __unpromoted: "{{__old_clone_roles | ternary(__slv, 'Unpromoted') }}"
+    ha_cluster_cluster_name: test-cluster
+    ha_cluster_export_configuration: true
+  # Make cluster not try starting any resources. Due to missing resource
+  # daemons, container services and images, the cluster would get stuck
+  # otherwise.
+    ha_cluster_cluster_properties:
+      - attrs:
+          - name: maintenance-mode
+            value: "true"
+          - name: stonith-enabled
+            value: "false"
+          - name: stop-all-resources
+            value: "true"
+  # To be able compare created and exported resources it is better to use
+  # normalized data definition than trying to align data definition with data
+  # gained from cluster
+    ha_cluster_resource_primitives:
+      - id: A
+        agent: "ocf:pacemaker:Stateful"
+        copy_operations_from_agent: false
+        operations:
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "10s"
+              - name: "timeout"
+                value: "20s"
+
+          - action: "start"
+            attrs:
+              - name: "interval"
+                value: "0s"
+              - name: "timeout"
+                value: "20s"
+
+          - action: "stop"
+            attrs:
+              - name: "interval"
+                value: "0s"
+              - name: "timeout"
+                value: "20s"
+        instance_attrs:
+          - attrs:
+              - name: "notify_delay"
+                value: "2"
+        meta_attrs:
+          - attrs:
+              - name: "target-role"
+                value: "Stopped"
+        utilization:
+          - attrs:
+              - name: "cpu"
+                value: 1
+      - id: B
+        agent: "systemd:crond"
+        copy_operations_from_agent: false
+        operations:
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "60s"
+              - name: "timeout"
+                value: "100s"
+          - action: "start"
+            attrs:
+              - name: "interval"
+                value: "0s"
+              - name: "timeout"
+                value: "100s"
+          - action: "stop"
+            attrs:
+              - name: "interval"
+                value: "0s"
+              - name: "timeout"
+                value: "100s"
+      - id: C
+        agent: "ocf:pacemaker:Stateful"
+        copy_operations_from_agent: false
+        operations:
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "10s"
+              - name: "timeout"
+                value: "20s"
+              - name: "role"
+                value: "{{ __promoted }}"
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "11s"
+              - name: "timeout"
+                value: "20s"
+              - name: "role"
+                value: "{{ __unpromoted }}"
+      - id: D
+        agent: "ocf:pacemaker:Stateful"
+        copy_operations_from_agent: false
+        operations:
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "10s"
+              - name: "timeout"
+                value: "20s"
+              - name: "role"
+                value: "{{ __promoted }}"
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "11s"
+              - name: "timeout"
+                value: "20s"
+              - name: "role"
+                value: "{{ __unpromoted }}"
+      - id: E
+        agent: "ocf:pacemaker:Stateful"
+        copy_operations_from_agent: false
+        operations:
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "10s"
+              - name: "timeout"
+                value: "20s"
+              - name: "role"
+                value: "{{ __promoted }}"
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "11s"
+              - name: "timeout"
+                value: "20s"
+              - name: "role"
+                value: "{{ __unpromoted }}"
+      - id: F
+        agent: "ocf:pacemaker:Stateful"
+        copy_operations_from_agent: false
+        operations:
+          - action: "demote"
+            attrs:
+              - name: "interval"
+                value: "0s"
+              - name: "timeout"
+                value: "10s"
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "10s"
+              - name: "timeout"
+                value: "20s"
+              - name: "role"
+                value: "{{ __promoted }}"
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "11s"
+              - name: "timeout"
+                value: "20s"
+              - name: "role"
+                value: "{{ __unpromoted }}"
+          - action: "notify"
+            attrs:
+              - name: "interval"
+                value: "0s"
+              - name: "timeout"
+                value: "5s"
+          - action: "promote"
+            attrs:
+              - name: "interval"
+                value: "0s"
+              - name: "timeout"
+                value: "10s"
+          - action: "start"
+            attrs:
+              - name: "interval"
+                value: "0s"
+              - name: "timeout"
+                value: "20s"
+          - action: "stop"
+            attrs:
+              - name: "interval"
+                value: "0s"
+              - name: "timeout"
+                value: "20s"
+      - id: G
+        agent: "ocf:pacemaker:Stateful"
+        copy_operations_from_agent: false
+        operations:
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "10s"
+              - name: "timeout"
+                value: "20s"
+              - name: "role"
+                value: "{{ __promoted }}"
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "11s"
+              - name: "timeout"
+                value: "20s"
+              - name: "role"
+                value: "{{ __unpromoted }}"
+      - id: H
+        copy_operations_from_agent: false
+        agent: ocf:pacemaker:Stateful
+        operations:
+          - action: monitor
+            attrs:
+              - name: interval
+                value: 10s
+              - name: timeout
+                value: 20s
+              - name: role
+                value: "{{ __promoted }}"
+          - action: monitor
+            attrs:
+              - name: interval
+                value: 11s
+              - name: timeout
+                value: 20s
+              - name: role
+                value: "{{ __unpromoted }}"
+      - id: F1
+        agent: "stonith:fence_kdump"
+        copy_operations_from_agent: false
+        instance_attrs:
+          - attrs:
+              - name: "timeout"
+                value: "35"
+        meta_attrs:
+          - attrs:
+              - name: "target-role"
+                value: "Stopped"
+        operations:
+          - action: "monitor"
+            attrs:
+              - name: "interval"
+                value: "60s"
+
+    ha_cluster_resource_groups:
+      - id: G1
+        resource_ids:
+          - C
+          - D
+        meta_attrs:
+          - attrs:
+              - name: is-managed
+                value: 'true'
+              - name: target-role
+                value: Started
+      - id: G2
+        resource_ids:
+          - E
+      - id: G3
+        resource_ids:
+          - G
+
+    ha_cluster_resource_clones:
+      - id: F-clone
+        resource_id: F
+        promotable: true
+      - id: G3-clone
+        resource_id: G3
+
+    ha_cluster_resource_bundles:
+      - id: B-min
+        container:
+          type: docker
+          options:
+            - name: image
+              value: my:image1
+      - id: B-without-primitive
+        container:
+          type: docker
+          options:
+            - name: image
+              value: my:image1
+            - name: replicas
+              value: 2
+        network_options:
+          - name: control-port
+            value: 3121
+          - name: host-netmask
+            value: 32
+        port_map:
+          -   - name: port # yamllint disable-line rule:hyphens
+                value: 23456
+          -   - name: port # yamllint disable-line rule:hyphens
+                value: 34567
+              - name: internal-port
+                value: 45678
+        storage_map:
+          -   - name: source-dir # yamllint disable-line rule:hyphens
+                value: /tmp/source1
+              - name: target-dir
+                value: /tmp/target1
+          -   - name: source-dir # yamllint disable-line rule:hyphens
+                value: /tmp/source2
+              - name: target-dir
+                value: /tmp/target2
+        meta_attrs:
+          - attrs:
+              - name: an-attr
+                value: a value
+              - name: target-role
+                value: Stopped
+      - id: B-with-primitive
+        resource_id: H
+        container:
+          type: docker
+          options:
+            - name: image
+              value: my:image2
+            - name: replicas
+              value: 2
+            - name: replicas-per-host
+              value: 2
+            - name: promoted-max
+              value: 1
+            - name: run-command
+              value: /bin/true
+            - name: network
+              value: extra_network_settings
+            - name: options
+              value: extra_options
+        network_options:
+          - name: ip-range-start
+            value: 192.168.100.200
+          - name: control-port
+            value: 3122
+          - name: host-interface
+            value: eth0
+          - name: host-netmask
+            value: 32
+        port_map:
+          -   - name: port # yamllint disable-line rule:hyphens
+                value: 33456
+          -   - name: port # yamllint disable-line rule:hyphens
+                value: 44567
+              - name: internal-port
+                value: 55678
+          -   - name: range # yamllint disable-line rule:hyphens
+                value: 33457-33459
+        storage_map:
+          -   - name: source-dir # yamllint disable-line rule:hyphens
+                value: /tmp/source3
+              - name: target-dir
+                value: /tmp/target3
+          -   - name: source-dir-root # yamllint disable-line rule:hyphens
+                value: /tmp/source4
+              - name: target-dir
+                value: /tmp/target4
+              - name: options
+                value: extra_options
+        meta_attrs:
+          - attrs:
+              - name: target-role
+                value: Stopped
+
+  tasks:
+    - name: Run test
+      tags:
+        - tests::booted
+        - tests::verify
+      block:
+        - name: Skip test in bootc mode
+          include_tasks: tasks/skip_if_bootc.yml
+
+        - name: Set up test environment
+          include_role:
+            name: fedora.linux_system_roles.ha_cluster
+            tasks_from: test_setup.yml
+
+      # Install pcs so we can read capabilities
+        - name: Install pcs
+          package:
+            name: pcs
+            state: present
+            use: >-
+              {{
+                (__ha_cluster_is_ostree | d(false))
+                  | ternary('ansible.posix.rhel_rpm_ostree', omit)
+              }}
+
+        - name: Fetch cluster versions of cluster components
+          include_tasks: tasks/fetch_versions.yml
+
+        - name: Check exported resources configuration
+          when:
+            - __required_capability in __test_pcs_capabilities
+          vars:
+            __test_expected:
+              primitives: >-
+                {{ ha_cluster_resource_primitives | sort(attribute='id') }}
+              groups: >-
+                {{ ha_cluster_resource_groups | sort(attribute='id') }}
+              clones: >-
+                {{ ha_cluster_resource_clones | sort(attribute='id') }}
+              bundles: >-
+                {{ ha_cluster_resource_bundles | sort(attribute='id') }}
+            __test_got:
+              primitives: >-
+                {{
+                  ha_cluster_facts.ha_cluster_resource_primitives
+                  | sort(attribute='id')
+                }}
+              groups: >-
+                {{
+                  ha_cluster_facts.ha_cluster_resource_groups
+                  | sort(attribute='id')
+                }}
+              clones: >-
+                {{
+                  ha_cluster_facts.ha_cluster_resource_clones
+                  | sort(attribute='id')
+                }}
+              bundles: >-
+                {{
+                  ha_cluster_facts.ha_cluster_resource_bundles
+                  | sort(attribute='id')
+                }}
+          block:
+            - name: Run HA Cluster role
+              include_tasks: tasks/run_role_with_clear_facts.yml
+              vars:
+                __sr_public: true
+
+            - name: Print facts
+              debug:
+                var: ha_cluster_facts
+
+            - name: Print exported configuration
+              debug:
+                var: __test_got
+
+            - name: Print expected configuration
+              debug:
+                var: __test_expected
+
+            - name: Compare expected and exported configuration
+              assert:
+                that:
+                  - __test_got == __test_expected
+
+        - name: Warn about skipped test
+          when:
+            - __required_capability not in __test_pcs_capabilities
+          debug:
+            msg: This test needs pcs with {{ __required_capability }} capability

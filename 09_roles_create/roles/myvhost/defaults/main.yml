@@ -1,0 +1,10 @@
+---
+# defaults file for roles/myvhost
+pkgs:
+  - httpd
+  - mod_ssl
+
+svcs:
+  - httpd
+
+webconf: /etc/httpd/conf.d/vhost.conf

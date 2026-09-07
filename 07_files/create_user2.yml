@@ -1,0 +1,36 @@
+---
+- name: 0) 사용자 추가/권한/인증
+  hosts: all
+  gather_facts: false
+  remote_user: ansible
+  vars:
+    username: devops
+    pwhash: CHANGE_ME
+  tasks:
+    ####################################################
+    # 1) 사용자 추가 - devops(관리자로 추가)
+    # 2) 사용자 권한 설정 - sudo (/etc/sudoers.d/devops)
+    # 3) 공개키 인증 (ssh-keygen + ssh-copy-id)
+    ####################################################
+    # 1) 사용자 추가 - devops(관리자로 추가)
+    - name: 1) 사용자 추가 - devops
+      ansible.builtin.user:
+        name: "{{ username }}"
+        password: "{{ pwhash | password_hash('sha512') }}"
+
+    # 2) 사용자 권한 설정 - sudo (/etc/sudoers.d/devops)
+    - name: 2) 사용자 권한 설정 - sudo (/etc/sudoers.d/devops)
+      # files/devops -- copy --> /etc/sudoers.d/devops
+      ansible.builtin.copy:
+        src: files/devops
+        dest: /etc/sudoers.d/devops
+        owner: root
+        group: root
+        mode: '0440'
+
+    # 3) 공개키 인증 (ssh-keygen + ssh-copy-id)
+    - name: 공개키 인증 (ssh-keygen + ssh-copy-id)
+      ansible.posix.authorized_key:
+        user: devops
+        state: present
+        key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"

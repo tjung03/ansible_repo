@@ -1,0 +1,17 @@
+---
+- name: 0) SELinux module 사용하기 (permissive -> enforcing)
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: 1) 설정 파일에서 SELinux Mode 변경하기 (/etc/selinux/config)
+      ansible.builtin.lineinfile:
+        path: /etc/selinux/config
+        regexp: '^SELINUX='
+        line: SELINUX=enforcing
+
+    - name: 2) 현재 SELinux Mode 상태 변경하기 (setenforce 1)
+      # ansible.builtin.command: setenforce 1
+      # register: output
+      ansible.builtin.selinux:
+        policy: targeted
+        state: enforcing

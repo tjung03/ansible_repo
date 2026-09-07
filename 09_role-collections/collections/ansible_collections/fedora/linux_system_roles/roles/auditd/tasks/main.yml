@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Set platform/version specific variables
+  ansible.builtin.include_tasks: set_vars.yml
+
+# Role parameter validation might depend on facts set in set_vars.yml
+# e.g. if some parameters are only valid on certain platforms or versions
+- name: Validate role parameters
+  ansible.builtin.include_tasks: assert_role_vars.yml
+
+- name: Install audit packages
+  ansible.builtin.package:
+    name: "{{ __auditd_packages }}"
+    state: present
+    use: "{{ (__auditd_is_ostree | d(false)) | ternary('ansible.posix.rhel_rpm_ostree', omit) }}"
+
+- name: Get package info
+  ansible.builtin.package_facts:
+  no_log: "{{ ansible_verbosity | int < 2 }}"
+
+- name: Set auditd_version
+  ansible.builtin.set_fact:
+    auditd_version: "{{ ansible_facts['packages']['audit'][0].version }}"
+
+- name: Capture auditctl settings
+  ansible.builtin.command: auditctl -s
+  changed_when: false
+  register: auditd_auditctl_settings_previous
+
+- name: Deploy auditd configuration
+  ansible.builtin.template:
+    src: auditd.conf.j2
+    dest: "{{ __auditd_config_directory }}/{{ __auditd_config_file }}"
+    mode: "0640"
+  notify: Restart auditd
+
+- name: Ensure rules.d directory exists
+  ansible.builtin.file:
+    path: "{{ __auditd_rules_file | dirname }}"
+    state: directory
+    mode: "0750"
+
+- name: Purge rules.d when requested
+  ansible.builtin.include_tasks: purge_rules.yml
+  when:
+    - auditd_purge_rules | bool
+    - auditd_manage_rules | bool
+
+- name: Deploy custom audit rules
+  ansible.builtin.template:
+    src: custom.rules.j2
+    dest: "{{ __auditd_rules_file }}"
+    mode: "0664"
+  notify: Run augenrules
+  when:
+    - auditd_manage_rules | bool
+    - not (__auditd_purge_keep_custom_rules | default(false) | bool)
+
+- name: Handle loginuid immutable and optional reboot
+  ansible.builtin.include_tasks: loginuid_immutable.yml
+
+- name: Start and enable auditd service
+  ansible.builtin.service:
+    name: "{{ __auditd_service }}"
+    state: started
+    enabled: true
+  when: auditd_start_service | bool
+
+- name: Record role success fingerprint
+  fedora.linux_system_roles.sr_fingerprint:
+    sr_message: >-
+      success system_role:auditd ansible_version={{ ansible_version.full }}
+      {{ ansible_facts['distribution'] }}-{{ ansible_facts['distribution_version'] }}

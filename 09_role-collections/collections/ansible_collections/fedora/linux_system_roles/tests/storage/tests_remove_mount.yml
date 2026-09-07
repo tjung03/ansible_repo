@@ -1,0 +1,73 @@
+---
+- name: Test remove mount
+  hosts: all
+  become: true
+  vars:
+    mount_location_before: '/opt/test1'
+    mount_location_after: ''
+    volume_size: '3g'
+    __storage_min_size: "{{ volume_size }}"
+    __storage_max_return: 1
+  tags:
+    - tests::lvm
+
+  tasks:
+    - name: Prep storage role and discover unused disks
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: Create a LVM logical volume mounted at "{{ mount_location_before }}"
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                size: "{{ volume_size }}"
+                mount_point: "{{ mount_location_before }}"
+
+    - name: Verify role results
+      include_tasks: verify-role-results.yml
+
+    - name: Change the mount location to "{{ mount_location_after }}"
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                size: "{{ volume_size }}"
+                mount_point: "{{ mount_location_after }}"
+
+    - name: Verify role results - 2
+      include_tasks: verify-role-results.yml
+
+    - name: Repeat the previous invocation to verify idempotence
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                size: "{{ volume_size }}"
+                mount_point: "{{ mount_location_after }}"
+
+    - name: Verify role results - 3
+      include_tasks: verify-role-results.yml
+
+    - name: Clean up
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: foo
+            disks: "{{ unused_disks }}"
+            state: absent
+            volumes:
+              - name: test1
+                size: "{{ volume_size }}"
+                mount_point: "{{ mount_location_after }}"
+
+    - name: Verify role results - 4
+      include_tasks: verify-role-results.yml

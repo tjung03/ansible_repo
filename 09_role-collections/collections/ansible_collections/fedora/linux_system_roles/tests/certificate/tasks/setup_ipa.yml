@@ -1,0 +1,167 @@
+---
+- name: Set __is_beaker_env
+  set_fact:
+    __is_beaker_env: "{{ lookup('env', 'BEAKERLIB') | length > 0 and lookup('env', 'TESTING_FARM_GIT_URL') | length == 0 }}"
+
+- name: Determine if system is ostree and set flag
+  when: not __certificate_is_ostree is defined
+  block:
+    - name: Check if system is ostree
+      stat:
+        path: /run/ostree-booted
+      register: __ostree_booted_stat
+
+    - name: Set flag to indicate system is ostree
+      set_fact:
+        __certificate_is_ostree: "{{ __ostree_booted_stat.stat.exists }}"
+
+- name: Install ansible-freeipa
+  package:
+    name: ansible-freeipa
+  delegate_to: 127.0.0.1
+  when: __is_beaker_env
+
+- name: Ensure freeipa-repo is absent
+  file:
+    path: /tmp/freeipa-repo/
+    state: absent
+  delegate_to: 127.0.0.1
+  become: false
+  when: not __is_beaker_env
+
+- name: Clone ansible-freeipa repo
+  git: # noqa latest[git]
+    repo: https://github.com/freeipa/ansible-freeipa
+    dest: /tmp/freeipa-repo
+    depth: 1
+  delegate_to: 127.0.0.1
+  become: false
+  when: not __is_beaker_env
+
+- name: Create role symlinks
+  file:
+    src: "/tmp/freeipa-repo/roles/{{ item }}/"
+    dest: "{{ playbook_dir }}/roles/{{ item }}"
+    state: link
+  delegate_to: 127.0.0.1
+  become: false
+  loop:
+    - ipaserver
+    - ipaclient
+  when: not __is_beaker_env
+
+- name: Ensure hostname package is installed
+  package:
+    name: hostname
+    state: present
+    use: "{{ (__certificate_is_ostree | d(false)) | ternary('ansible.posix.rhel_rpm_ostree', omit) }}"
+
+- name: Get hostname
+  command: hostname
+  changed_when: false
+  register: __saved_hostname
+
+- name: Set hostname
+  hostname:
+    name: ipaserver.test.local
+    use: systemd
+  when: ansible_facts["os_family"] == "RedHat"
+
+- name: Ensure nss package is up-to-date
+  package:
+    name: nss
+    state: latest # noqa package-latest
+    use: "{{ (__certificate_is_ostree | d(false)) | ternary('ansible.posix.rhel_rpm_ostree', omit) }}"
+  when: ansible_facts["os_family"] == "RedHat"
+
+- name: Sanitize /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "{{ ansible_facts['default_ipv4'].address }}"
+    state: absent
+    owner: root
+    group: root
+    mode: "0644"
+  when: not __is_beaker_env
+  become: true
+
+- name: Add host to /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ ansible_facts['default_ipv4'].address }}  ipaserver.test.local"
+    state: present
+    insertafter: EOF
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  when: not __is_beaker_env
+  become: true
+
+- name: Run IPA server install
+  vars:
+    ipaserver_setup_dns: false
+    ipaserver_auto_forwarders: false
+    ipaadmin_password: SomeADMINpassword
+    ipadm_password: SomeDMpassword
+    ipaserver_domain: test.local
+    ipaserver_realm: TEST.LOCAL
+    ipaserver_hostname: ipaserver.test.local
+    ipaserver_no_host_dns: true
+    local_log_dir: "{{ lookup('env', 'TEST_ARTIFACTS') | d('/tmp', true) }}"
+    role_collection_path: >-
+      /usr/share/ansible/collections/ansible_collections/freeipa/ansible_freeipa/roles/ipaserver
+    role_collection_name: freeipa.ansible_freeipa.ipaserver
+  block:
+    - name: See if collection exists
+      stat:
+        path: "{{ role_collection_path }}"
+      register: __ipa_collection
+      delegate_to: localhost
+
+    - name: Set name of ipa server role
+      set_fact:
+        __ipa_server_role: "{{ role_collection_name if __ipa_collection.stat.exists else 'ipaserver' }}"
+
+    - name: Include ipaserver role
+      include_role:
+        name: "{{ __ipa_server_role }}"
+  rescue:
+    - name: FAILURE - check entropy
+      command: cat /proc/sys/kernel/random/entropy_avail
+      changed_when: false
+    - name: FAILURE - get logs for debugging
+      shell: |-
+        set -euo pipefail
+        cd /var/log
+        tar -czf /tmp/ipalogs.tgz \
+          $( [[ -e messages ]] && echo messages ) \
+          $( [[ -e ipaserver-install.log ]] && echo ipaserver-install.log ) \
+          $( [[ -e ipaclient-install.log ]] && echo ipaclient-install.log ) \
+          $( [[ -e pki ]] && echo pki )
+        chmod '0644' /tmp/ipalogs.tgz
+        echo "==========================="
+        echo "    ipaserver-install.log"
+        echo "==========================="
+        cat ipaserver-install.log
+        echo "==========================="
+        echo "    /var/log/messages"
+        echo "==========================="
+        cat /var/log/messages
+      changed_when: false
+    - name: FAILURE - grab archive
+      fetch:
+        src: /tmp/ipalogs.tgz
+        dest: "{{ local_log_dir }}/ipalogs.tgz"
+        flat: true
+    - name: FAILURE - unpack archive
+      shell: |-
+        set -euo pipefail
+        cd "{{ local_log_dir }}"
+        tar -xvzf ipalogs.tgz
+        chmod 0644 *
+      delegate_to: 127.0.0.1
+      changed_when: false
+    - name: Failed
+      fail:
+        msg: failed

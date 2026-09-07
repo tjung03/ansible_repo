@@ -1,0 +1,14 @@
+{
+    "_comment": "RVPS Configuration for Quadlet Deployment",
+
+    "storage": {
+        "_comment": "Local filesystem storage for reference values",
+        "type": "LocalJson",
+        "file_path": "/var/lib/rvps/reference_values/reference-values.json"
+    },
+
+    "_comment_grpc": "gRPC server configuration",
+    "grpc": {
+        "address": "0.0.0.0:50003"
+    }
+}

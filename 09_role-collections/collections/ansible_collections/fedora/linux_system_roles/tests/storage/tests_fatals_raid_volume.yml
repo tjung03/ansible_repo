@@ -1,0 +1,27 @@
+---
+- name: Test raid volume fatal errors
+  hosts: all
+  become: true
+  vars:
+    storage_safe_mode: false
+    storage_use_partitions: true
+    mount_location: '/opt/test1'
+    __storage_max_return: 2
+    __storage_disks_needed: 2
+
+  tasks:
+    - name: Prep storage role and discover unused disks
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: Try to create a raid pool with invalid raid_level (expect failure)
+      include_tasks: verify-role-failed.yml
+      vars:
+        __storage_failed_exception: null is not a valid RAID level
+        __storage_failed_params:
+          storage_safe_mode: false
+          storage_volumes:
+            - name: test1
+              type: raid
+              raid_level: "null"
+              disks: "{{ unused_disks }}"
+              mount_point: "{{ mount_location }}"

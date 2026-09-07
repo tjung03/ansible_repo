@@ -1,0 +1,47 @@
+---
+- name: 0) 웹서버 설정
+  hosts: webservers
+  tasks:
+    ############################################
+    # 1) 패키지 설치 - httpd, firewalld
+    # 2) 웹서비스 설정
+    #   * /etc/httpd/conf/httpd.conf (/etc/httpd/conf.d/*.conf)
+    #   * /var/www/html/*
+    # 3) 웹서비스 기동 - httpd.service, firewalld.service
+    # 4) 방화벽 등록 - http(80/tcp)
+    # 5) SELinux 설정
+    ############################################
+    - name: 1) 패키지 설치(yum module) - httpd
+      ansible.builtin.yum:
+        name:
+          - httpd
+          - firewalld
+        state: present
+
+    - name: 2) 웹서비스 설정(copy module) - /var/www/html/index.html
+      # files/index.html -- copy module --> /var/www/html/index.html
+      ansible.builtin.copy:
+        src: files/index.html
+        dest: /var/www/html/index.html
+        owner: apache
+        group: apache
+        mode: '0644'
+
+    - name: 3) 웹서비스 기동(service module) - httpd.service
+      ansible.builtin.service:
+        name: httpd
+        state: started
+        enabled: true
+
+    - name: 3) 웹서비스 기동(service module) - firewalld.service
+      ansible.builtin.service:
+        name: firewalld
+        state: started
+        enabled: true
+
+    - name: 4) 방화벽 등록(firewalld module) - http(80/tcp)
+      ansible.posix.firewalld:
+        service: http
+        permanent: true
+        state: enabled
+        immediate: true

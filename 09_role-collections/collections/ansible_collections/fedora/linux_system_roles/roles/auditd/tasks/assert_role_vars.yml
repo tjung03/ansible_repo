@@ -1,0 +1,235 @@
+# SPDX-License-Identifier: MIT
+---
+# Validation aligned with audit-userspace src/auditd-config.c parsers.
+- name: Assert num_logs range (num_logs_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_num_logs | int >= 0
+      - auditd_num_logs | int <= 999
+    fail_msg: auditd_num_logs must be between 0 and 999 inclusive
+
+- name: Assert buffer_size is positive (buffer_size_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_buffer_size | int > 0
+    fail_msg: auditd_buffer_size must be a positive integer
+
+- name: Assert freq range (freq_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_freq | int >= 0
+      - auditd_freq | int <= 2147483647
+    fail_msg: auditd_freq must be between 0 and INT_MAX
+
+- name: Assert incremental flush requires non-zero freq
+  ansible.builtin.assert:
+    that:
+      - (auditd_flush | lower not in ['incremental', 'incremental_async']) or (auditd_freq | int > 0)
+    fail_msg: >-
+      When auditd_flush is incremental or incremental_async, auditd_freq must be greater than 0
+
+- name: Assert priority_boost range (priority_boost_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_priority_boost | int >= 0
+      - auditd_priority_boost | int <= 2147483647
+
+- name: Assert q_depth range (q_depth_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_q_depth | int >= 0
+      - auditd_q_depth | int <= 99999
+    fail_msg: auditd_q_depth must be between 0 and 99999 inclusive
+
+- name: Assert auditd_maximum_rate is null or a non-negative integer
+  ansible.builtin.assert:
+    that:
+      - >-
+        (auditd_maximum_rate is none)
+        or ((auditd_maximum_rate | string | trim | length) == 0)
+        or (auditd_maximum_rate | string | trim is match('^[0-9]+$'))
+    fail_msg: >-
+      auditd_maximum_rate must be null, empty, or a non-negative integer (digits only)
+
+- name: Assert auditd_backlog_wait_time is null or a non-negative integer
+  ansible.builtin.assert:
+    that:
+      - >-
+        (auditd_backlog_wait_time is none)
+        or ((auditd_backlog_wait_time | string | trim | length) == 0)
+        or (auditd_backlog_wait_time | string | trim is match('^[0-9]+$'))
+    fail_msg: >-
+      auditd_backlog_wait_time must be null, empty, or a non-negative integer (digits only)
+
+- name: Assert max_restarts range (max_restarts_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_max_restarts | int >= 0
+      - auditd_max_restarts | int <= 2147483647
+
+- name: Assert enable_flag range (enable_flag_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_enable_flag | int in [0, 1, 2]
+    fail_msg: auditd_enable_flag must be 0, 1, or 2
+
+- name: Assert fail_mode range (fail_mode_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_fail_mode | int in [0, 1, 2]
+    fail_msg: auditd_fail_mode must be 0, 1, or 2
+
+- name: Assert tcp_listen_port range when listener enabled in build (tcp_listen_port_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_tcp_listen_port | int >= 0
+      - auditd_tcp_listen_port | int <= 65535
+
+- name: Assert tcp_listen_queue range (tcp_listen_queue_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_tcp_listen_queue | int >= 0
+      - auditd_tcp_listen_queue | int <= 65535
+
+- name: Assert tcp_max_per_addr range (tcp_max_per_addr_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_tcp_max_per_addr | int >= 1
+      - auditd_tcp_max_per_addr | int <= 1024
+
+- name: Assert tcp_client_max_idle range (tcp_client_max_idle_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_tcp_client_max_idle | int >= 0
+      - auditd_tcp_client_max_idle | int <= 2147483647
+
+- name: Assert tcp_client_ports format (tcp_client_ports_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_tcp_client_ports is match('^[0-9]+(-[0-9]+)?$')
+    fail_msg: >-
+      auditd_tcp_client_ports must be digits or LOW-HIGH with digits only
+  when:
+    - auditd_tcp_client_ports is string
+    - auditd_tcp_client_ports | length > 0
+
+- name: Assert tcp_client_ports range order
+  ansible.builtin.assert:
+    that:
+      - (auditd_tcp_client_ports.split('-')[0] | int) <= (auditd_tcp_client_ports.split('-')[1] | int)
+    fail_msg: auditd_tcp_client_ports range is reversed
+  when:
+    - auditd_tcp_client_ports is string
+    - auditd_tcp_client_ports is search('-')
+
+- name: Assert space_left_action rejects halt (space_action_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_space_left_action | lower != 'halt'
+    fail_msg: HALT is not allowed for auditd_space_left_action
+
+- name: Assert space_left percentage is between 1 and 99 when given as N%
+  ansible.builtin.assert:
+    that:
+      - __auditd_space_left_pct | int >= 1
+      - __auditd_space_left_pct | int <= 99
+    fail_msg: >-
+      When auditd_space_left is digits followed by %, the number must be between
+      1 and 99 inclusive
+  vars:
+    __auditd_space_left_pct: "{{ auditd_space_left | string | regex_replace('%$', '') }}"
+  when: (auditd_space_left | string) is match('^[0-9]+%$')
+
+- name: Assert admin_space_left percentage is between 1 and 99 when given as N%
+  ansible.builtin.assert:
+    that:
+      - __auditd_admin_space_left_pct | int >= 1
+      - __auditd_admin_space_left_pct | int <= 99
+    fail_msg: >-
+      When auditd_admin_space_left is digits followed by %, the number must be
+      between 1 and 99 inclusive
+  vars:
+    __auditd_admin_space_left_pct: "{{ auditd_admin_space_left | string | regex_replace('%$', '') }}"
+  when: (auditd_admin_space_left | string) is match('^[0-9]+%$')
+
+- name: Assert space_left is greater than admin_space_left when both use same form
+  ansible.builtin.assert:
+    that:
+      - __auditd_space_left_cmp | int > __auditd_admin_space_left_cmp | int
+    fail_msg: >-
+      When auditd_space_left and auditd_admin_space_left are both percentages
+      (digits followed by %) or both plain non-negative integers (MiB), the value
+      for auditd_space_left must be greater than auditd_admin_space_left
+  vars:
+    __auditd_space_left_cmp: "{{ auditd_space_left | string | regex_replace('%$', '') }}"
+    __auditd_admin_space_left_cmp: "{{ auditd_admin_space_left | string | regex_replace('%$', '') }}"
+  when: >-
+    (
+      (
+        ((auditd_space_left | string) is match('^[0-9]+%$'))
+        and ((auditd_admin_space_left | string) is match('^[0-9]+%$'))
+      )
+      or
+      (
+        ((auditd_space_left | string) is match('^[0-9]+$'))
+        and ((auditd_admin_space_left | string) is match('^[0-9]+$'))
+      )
+    )
+
+- name: Assert disk_full_action rejects email (disk_full_action_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_disk_full_action | lower != 'email'
+    fail_msg: email is not allowed for auditd_disk_full_action
+
+- name: Assert disk_error_action rejects email and rotate (disk_error_action_parser)
+  ansible.builtin.assert:
+    that:
+      - auditd_disk_error_action | lower not in ['email', 'rotate']
+    fail_msg: email and rotate are not allowed for auditd_disk_error_action
+
+- name: Assert exec companion paths when action is exec
+  ansible.builtin.assert:
+    that:
+      - auditd_max_log_file_action_exe | default('', true) | length > 0
+    fail_msg: auditd_max_log_file_action_exe is required when auditd_max_log_file_action is exec
+  when: auditd_max_log_file_action | lower == 'exec'
+
+- name: Assert space_left_action exec path
+  ansible.builtin.assert:
+    that:
+      - auditd_space_left_action_exe | default('', true) | length > 0
+    fail_msg: auditd_space_left_action_exe is required when auditd_space_left_action is exec
+  when: auditd_space_left_action | lower == 'exec'
+
+- name: Assert admin_space_left_action exec path
+  ansible.builtin.assert:
+    that:
+      - auditd_admin_space_left_action_exe | default('', true) | length > 0
+    fail_msg: auditd_admin_space_left_action_exe is required when auditd_admin_space_left_action is exec
+  when: auditd_admin_space_left_action | lower == 'exec'
+
+- name: Assert disk_full_action exec path
+  ansible.builtin.assert:
+    that:
+      - auditd_disk_full_action_exe | default('', true) | length > 0
+    fail_msg: auditd_disk_full_action_exe is required when auditd_disk_full_action is exec
+  when: auditd_disk_full_action | lower == 'exec'
+
+- name: Assert disk_error_action exec path
+  ansible.builtin.assert:
+    that:
+      - auditd_disk_error_action_exe | default('', true) | length > 0
+    fail_msg: auditd_disk_error_action_exe is required when auditd_disk_error_action is exec
+  when: auditd_disk_error_action | lower == 'exec'
+
+- name: Assert name when name_format is user (resolve_node)
+  ansible.builtin.assert:
+    that:
+      - auditd_name | default('', true) | length > 0
+    fail_msg: auditd_name is required when auditd_name_format is user
+  when: auditd_name_format | lower == 'user'
+
+- name: Validate auditd_rules structure and values
+  ansible.builtin.include_tasks: assert_auditd_rules.yml
+  when: auditd_rules | length > 0

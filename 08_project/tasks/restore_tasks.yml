@@ -1,0 +1,33 @@
+---
+# Task
+##############################################################
+# 1) 방화벽 서비스 제거
+# 2) 서비스 종료
+# 3) 서비스 설정 삭제
+# 4) 패키지 삭제
+##############################################################
+- name: Remove the FW service - {{ svc_fws }}
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    state: disabled
+  loop: "{{ svc_fws }}"
+
+- name: Stop the Unit - {{ svcs }}
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  ignore_errors: true
+  loop: "{{ svcs }}"
+
+- name: Remove the files - {{ file_web }}
+  ansible.builtin.file:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ file_web }}"
+
+- name: Remove the packages - {{ pkg_webs }}
+  ansible.builtin.dnf:
+    name: "{{ pkg_webs }}"
+    state: absent

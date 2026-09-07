@@ -1,0 +1,552 @@
+# SPDX-License-Identifier: MIT
+---
+# Verify meta/argument_specs.yml and tasks/assert_role_vars.yml reject bad parameters.
+# Each block runs include_role expecting failure; rescue records that outcome.
+- name: Verify invalid parameters are rejected
+  hosts: all
+  tasks:
+  # --- meta/argument_specs (invalid choice / type) ---
+  # Role argument validation requires Ansible 2.10+; skipped on older versions.
+
+    - name: Back up existing auditd configuration and rules
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: Run test
+      block:
+        - name: Argument specs reject invalid auditd_transport
+          when: ansible_version.full is version('2.10', '>=')
+          block:
+            - name: Run role with invalid transport
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_transport: not_a_valid_transport
+          rescue:
+            - name: Mark invalid transport rejected
+              ansible.builtin.set_fact:
+                __invalid_input_transport_arg_spec_failed: true
+
+        - name: Assert invalid auditd_transport failed validation
+          when: ansible_version.full is version('2.10', '>=')
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_transport_arg_spec_failed | default(false)
+            fail_msg: >-
+              meta/argument_specs should reject auditd_transport values outside
+              the allowed set
+
+        - name: Argument specs reject invalid auditd_log_format
+          when: ansible_version.full is version('2.10', '>=')
+          block:
+            - name: Run role with invalid log_format
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_log_format: invalid_log_format_value
+          rescue:
+            - name: Mark invalid log_format rejected
+              ansible.builtin.set_fact:
+                __invalid_input_log_format_arg_spec_failed: true
+
+        - name: Assert invalid auditd_log_format failed validation
+          when: ansible_version.full is version('2.10', '>=')
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_log_format_arg_spec_failed | default(false)
+            fail_msg: >-
+              meta/argument_specs should reject auditd_log_format values outside
+              the allowed set
+
+      # --- tasks/assert_role_vars.yml (values allowed by argument_specs but invalid per auditd-config.c) ---
+
+        - name: Assert rejects auditd_num_logs greater than 999
+          block:
+            - name: Run role with num_logs 1000
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_num_logs: 1000
+          rescue:
+            - name: Mark num_logs range rejected
+              ansible.builtin.set_fact:
+                __invalid_input_num_logs_assert_failed: true
+
+        - name: Assert auditd_num_logs above 999 failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_num_logs_assert_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject auditd_num_logs greater than 999
+
+        - name: Assert rejects auditd_buffer_size that is not positive
+          block:
+            - name: Run role with auditd_buffer_size zero
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_buffer_size: 0
+          rescue:
+            - name: Mark auditd_buffer_size non-positive rejected
+              ansible.builtin.set_fact:
+                __invalid_input_buffer_size_assert_failed: true
+
+        - name: Assert auditd_buffer_size not positive failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_buffer_size_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should reject auditd_buffer_size unless it is a positive integer
+
+        - name: Assert rejects incremental_async flush with freq 0
+          block:
+            - name: Run role with incremental_async and zero freq
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_flush: incremental_async
+                auditd_freq: 0
+          rescue:
+            - name: Mark flush or freq rejected
+              ansible.builtin.set_fact:
+                __invalid_input_flush_freq_assert_failed: true
+
+        - name: Assert incremental flush with zero freq failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_flush_freq_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should reject incremental_async flush when
+              auditd_freq is 0
+
+        - name: Assert rejects auditd_q_depth over 99999
+          block:
+            - name: Run role with excessive q_depth
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_q_depth: 100000
+          rescue:
+            - name: Mark q_depth range rejected
+              ansible.builtin.set_fact:
+                __invalid_input_q_depth_assert_failed: true
+
+        - name: Assert auditd_q_depth above 99999 failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_q_depth_assert_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject auditd_q_depth greater than 99999
+
+        - name: Assert rejects auditd_tcp_max_per_addr below 1
+          block:
+            - name: Run role with tcp_max_per_addr zero
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_tcp_max_per_addr: 0
+          rescue:
+            - name: Mark tcp_max_per_addr below minimum rejected
+              ansible.builtin.set_fact:
+                __invalid_input_tcp_max_per_addr_low_assert_failed: true
+
+        - name: Assert auditd_tcp_max_per_addr below 1 failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_tcp_max_per_addr_low_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should reject auditd_tcp_max_per_addr less than 1
+
+        - name: Assert rejects auditd_tcp_max_per_addr above 1024
+          block:
+            - name: Run role with tcp_max_per_addr above maximum
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_tcp_max_per_addr: 1025
+          rescue:
+            - name: Mark tcp_max_per_addr above maximum rejected
+              ansible.builtin.set_fact:
+                __invalid_input_tcp_max_per_addr_high_assert_failed: true
+
+        - name: Assert auditd_tcp_max_per_addr above 1024 failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_tcp_max_per_addr_high_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should reject auditd_tcp_max_per_addr greater than 1024
+
+        - name: Assert rejects auditd_enable_flag outside 0 to 2
+          block:
+            - name: Run role with invalid auditd_enable_flag
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_enable_flag: 3
+          rescue:
+            - name: Mark auditd_enable_flag range rejected
+              ansible.builtin.set_fact:
+                __invalid_input_enable_flag_assert_failed: true
+
+        - name: Assert auditd_enable_flag outside 0 to 2 failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_enable_flag_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should reject auditd_enable_flag unless it is 0, 1, or 2
+
+        - name: Assert rejects auditd_fail_mode outside 0 to 2
+          block:
+            - name: Run role with invalid auditd_fail_mode
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_fail_mode: 3
+          rescue:
+            - name: Mark auditd_fail_mode range rejected
+              ansible.builtin.set_fact:
+                __invalid_input_fail_mode_assert_failed: true
+
+        - name: Assert auditd_fail_mode outside 0 to 2 failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_fail_mode_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should reject auditd_fail_mode unless it is 0, 1, or 2
+
+        - name: Assert rejects auditd_maximum_rate that is not null or a non-negative integer
+          block:
+            - name: Run role with invalid auditd_maximum_rate
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_maximum_rate: not-a-valid-integer
+          rescue:
+            - name: Mark auditd_maximum_rate format rejected
+              ansible.builtin.set_fact:
+                __invalid_input_maximum_rate_assert_failed: true
+
+        - name: Assert invalid auditd_maximum_rate failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_maximum_rate_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should reject auditd_maximum_rate unless it is
+              null, empty, or a non-negative integer string
+
+        - name: Assert rejects auditd_backlog_wait_time that is not null or a non-negative integer
+          block:
+            - name: Run role with invalid auditd_backlog_wait_time
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_backlog_wait_time: 12.5
+          rescue:
+            - name: Mark auditd_backlog_wait_time format rejected
+              ansible.builtin.set_fact:
+                __invalid_input_backlog_wait_time_assert_failed: true
+
+        - name: Assert invalid auditd_backlog_wait_time failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_backlog_wait_time_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should reject auditd_backlog_wait_time unless it is
+              null, empty, or a non-negative integer string
+
+        - name: Assert rejects auditd_space_left percentage outside 1 to 99
+          block:
+            - name: Run role with space_left zero percent
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_space_left: "0%"
+          rescue:
+            - name: Mark space_left percentage range rejected
+              ansible.builtin.set_fact:
+                __invalid_input_space_left_pct_assert_failed: true
+
+        - name: Assert auditd_space_left zero percent failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_space_left_pct_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should reject auditd_space_left when given
+              as a percentage with a value outside 1 to 99
+
+        - name: Assert rejects auditd_admin_space_left percentage outside 1 to 99
+          block:
+            - name: Run role with admin_space_left zero percent
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_admin_space_left: "0%"
+          rescue:
+            - name: Mark admin_space_left percentage range rejected
+              ansible.builtin.set_fact:
+                __invalid_input_admin_space_left_pct_assert_failed: true
+
+        - name: Assert auditd_admin_space_left zero percent failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_admin_space_left_pct_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should reject auditd_admin_space_left when
+              given as a percentage with a value outside 1 to 99
+
+        - name: Assert rejects space_left not greater than admin when both are percentages
+          block:
+            - name: Run role with space_left percent not above admin percent
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_space_left: "25%"
+                auditd_admin_space_left: "50%"
+          rescue:
+            - name: Mark space_left vs admin_space_left ordering rejected
+              ansible.builtin.set_fact:
+                __invalid_input_sl_asl_order_pct_assert_failed: true
+
+        - name: Assert space_left vs admin_space_left percentage ordering failed validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_sl_asl_order_pct_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should require auditd_space_left greater than
+              auditd_admin_space_left when both are percentages
+
+        - name: Assert rejects space_left not greater than admin when both are MIB values
+          block:
+            - name: Run role with space_left not above admin MIB value
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_space_left: "25"
+                auditd_admin_space_left: "50"
+          rescue:
+            - name: Mark space_left vs admin_space_left ordering rejected
+              ansible.builtin.set_fact:
+                __invalid_input_sl_asl_order_mib_assert_failed: true
+
+        - name: Assert space_left vs admin_space_left MIB value ordering failed validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_sl_asl_order_mib_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should require auditd_space_left greater than
+              auditd_admin_space_left when both are MIB values
+
+        - name: Assert rejects max_log_file_action exec without executable
+          block:
+            - name: Run role with exec action and empty exe path
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_max_log_file_action: exec
+                auditd_max_log_file_action_exe: ""
+          rescue:
+            - name: Mark exec path requirement rejected
+              ansible.builtin.set_fact:
+                __invalid_input_exec_exe_assert_failed: true
+
+        - name: Assert exec without max_log_file_action_exe failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_exec_exe_assert_failed | default(false)
+            fail_msg: >-
+              tasks/assert_role_vars.yml should require auditd_max_log_file_action_exe when
+              auditd_max_log_file_action is exec
+
+        - name: Assert rejects invalid tcp_client_ports format
+          block:
+            - name: Run role with non-numeric tcp_client_ports
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_tcp_client_ports: not-valid-ports
+          rescue:
+            - name: Mark tcp_client_ports format rejected
+              ansible.builtin.set_fact:
+                __invalid_input_tcp_ports_assert_failed: true
+
+        - name: Assert invalid tcp_client_ports failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_tcp_ports_assert_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject invalid auditd_tcp_client_ports format
+
+        - name: Assert rejects reversed tcp_client_ports range
+          block:
+            - name: Run role with reversed client port range
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_tcp_client_ports: 5000-1000
+          rescue:
+            - name: Mark reversed tcp_client_ports rejected
+              ansible.builtin.set_fact:
+                __invalid_input_tcp_ports_range_assert_failed: true
+
+        - name: Assert reversed tcp_client_ports range failed assert validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_tcp_ports_range_assert_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject reversed auditd_tcp_client_ports range
+
+        - name: Assert rejects auditd_rules entry without action and filter
+          block:
+            - name: Run role with incomplete auditd_rules dict
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_rules:
+                  - keyname: incomplete_rule
+          rescue:
+            - name: Mark incomplete auditd_rules rejected
+              ansible.builtin.set_fact:
+                __invalid_input_rules_assert_failed: true
+
+        - name: Assert auditd_rules without action and filter failed validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_rules_assert_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject auditd_rules entries without action and filter
+
+        - name: Assert rejects auditd_rules filesystem filter without fstype field
+          block:
+            - name: Run role with filesystem rule missing fstype
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_rules:
+                  - action: never
+                    filter: filesystem
+                    field: msgtype=AUDIT_FS
+                    keyname: bad_fs
+          rescue:
+            - name: Mark filesystem fstype rule rejected
+              ansible.builtin.set_fact:
+                __invalid_input_rules_fs_fstype_failed: true
+
+        - name: Assert filesystem rule without fstype=debugfs|tracefs failed validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_rules_fs_fstype_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject filesystem rules without fstype=debugfs or fstype=tracefs
+
+        - name: Assert rejects auditd_rules with both path and dir
+          block:
+            - name: Run role with path and dir on same rule
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_rules:
+                  - action: always
+                    filter: exit
+                    arch: b64
+                    syscall: open
+                    path: /etc/passwd
+                    dir: /etc
+                    keyname: path_and_dir
+          rescue:
+            - name: Mark path and dir together rejected
+              ansible.builtin.set_fact:
+                __invalid_input_rules_path_dir_failed: true
+
+        - name: Assert path and dir together failed validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_rules_path_dir_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject auditd_rules entries with both path and dir
+
+        - name: Assert rejects path when filter is not exit
+          block:
+            - name: Run role with path and non-exit filter
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_rules:
+                  - action: always
+                    filter: user
+                    path: /etc/issue
+                    keyname: path_bad_filter
+          rescue:
+            - name: Mark path with wrong filter rejected
+              ansible.builtin.set_fact:
+                __invalid_input_rules_path_filter_failed: true
+
+        - name: Assert path with non-exit filter failed validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_rules_path_filter_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject path unless filter is exit
+
+        - name: Assert rejects syscall when filter is not exit or io_uring
+          block:
+            - name: Run role with syscall and invalid filter
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_rules:
+                  - action: always
+                    filter: user
+                    syscall: open
+                    keyname: sc_bad_filter
+          rescue:
+            - name: Mark syscall with wrong filter rejected
+              ansible.builtin.set_fact:
+                __invalid_input_rules_sc_filter_failed: true
+
+        - name: Assert syscall with non-exit and non-io_uring filter failed validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_rules_sc_filter_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject syscall unless filter is exit or io_uring
+
+        - name: Assert rejects auditd_rules field with invalid operator
+          block:
+            - name: Run role with invalid field operator
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_rules:
+                  - action: always
+                    filter: exit
+                    arch: b64
+                    field: auid~~500
+                    keyname: bad_field_op
+          rescue:
+            - name: Mark invalid field operator rejected
+              ansible.builtin.set_fact:
+                __invalid_input_rules_field_op_failed: true
+
+        - name: Assert invalid field operator failed validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_rules_field_op_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject field values without a supported operator
+
+        - name: Assert rejects auditd_rules keyname longer than 31 characters
+          block:
+            - name: Run role with overlong keyname
+              ansible.builtin.include_role:
+                name: fedora.linux_system_roles.auditd
+              vars:
+                auditd_rules:
+                  - action: always
+                    filter: exit
+                    arch: b64
+                    syscall: read
+                    keyname: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+          rescue:
+            - name: Mark overlong keyname rejected
+              ansible.builtin.set_fact:
+                __invalid_input_rules_keyname_len_failed: true
+
+        - name: Assert overlong keyname failed validation
+          ansible.builtin.assert:
+            that:
+              - __invalid_input_rules_keyname_len_failed | default(false)
+            fail_msg: tasks/assert_role_vars.yml should reject keynames longer than 31 characters
+
+      always:
+        - name: Restore system state after test
+          ansible.builtin.include_tasks: tasks/cleanup.yml
+          tags: tests::cleanup

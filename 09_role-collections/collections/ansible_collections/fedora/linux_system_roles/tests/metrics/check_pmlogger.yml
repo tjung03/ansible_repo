@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Check if pmlogger is running
+  shell: |
+    set -euo pipefail
+    pmprobe -I pmcd.pmlogger.pmcd_host | grep '"primary"'
+  changed_when: false
+  when:
+    - (ansible_facts['distribution'] in ['RedHat', 'CentOS'] and ansible_facts['distribution_major_version'] | int > 6) or ansible_facts['distribution'] not in ['Fedora', 'RedHat', 'CentOS']
+    - __metrics_is_booted | bool
+
+- name: Check the ansible_managed header in the configuration file
+  vars:
+    __test_config_path: "{{ item }}"
+  include_tasks: check_header.yml
+  loop:
+    - /etc/sysconfig/pmlogger
+    - /etc/sysconfig/pmlogger_timers

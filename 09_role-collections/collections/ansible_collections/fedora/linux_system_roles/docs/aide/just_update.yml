@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Example aide role invocation
+  hosts: targets
+  tasks:
+    - name: Include role aide
+      vars:
+        aide_db_fetch_dir: files
+        aide_init: false
+        aide_fetch_db: false
+        aide_check: false
+        aide_update: true
+      ansible.builtin.include_role:
+        name: fedora.linux_system_roles.aide

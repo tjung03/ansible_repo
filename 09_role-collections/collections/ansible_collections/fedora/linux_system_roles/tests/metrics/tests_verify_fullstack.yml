@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Test the full PCP and Grafana stack
+  hosts: all
+  vars:
+    metrics_query_service: true
+    metrics_graph_service: true
+    metrics_manage_firewall: true
+    metrics_manage_selinux: true
+    metrics_optional_domains: [apache]
+    metrics_optional_packages: [pcp-pmda-apache]
+
+  pre_tasks:
+    - name: Stop test
+      meta: end_host
+      when: (ansible_facts['distribution'] in ['RedHat', 'CentOS'] and ansible_facts['distribution_major_version'] | int < 8) or ansible_facts['distribution'] not in ['Fedora', 'RedHat', 'CentOS']
+
+    - name: Save state of services
+      import_tasks: get_services_state.yml
+
+  tasks:
+    - name: Run test
+      block:
+        - name: Run the role
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          when: not __bootc_validation | d(false)
+          vars:
+            __sr_public: true
+
+        - name: Create QEMU deployment during bootc end-to-end test
+          delegate_to: localhost
+          command: "{{ lsr_scriptdir }}/bootc-buildah-qcow.sh {{ ansible_host }}"
+          changed_when: true
+          when: ansible_connection == "buildah"
+
+        - name: Flush handlers
+          meta: flush_handlers
+
+      # role does not run during bootc QEMU validation, thus some vars are undefined
+        - name: Set missing variables for bootc validation tests
+          set_fact:
+            __metrics_is_booted: true
+            metrics_provider: pcp
+          when: __bootc_validation | d(false)
+
+        - name: Check if all services work
+          include_tasks: "{{ item }}"
+          loop:
+            - check_pcp.yml
+            - check_pmlogger.yml
+            - check_pmie.yml
+            - check_keyserver.yml
+            - check_pmproxy.yml
+            - check_grafana.yml
+            - check_grafanapcp.yml
+            - check_firewall_selinux.yml
+
+        - name: Check if optional apache domain is active
+          command: pminfo -f pmcd.agent.status
+          changed_when: false
+          register: __check
+          when: __metrics_is_booted
+          failed_when: __check is failed or __check is not search("apache")
+
+      rescue:
+        - name: Handle failure case
+          include_tasks: handle_test_failure.yml
+
+      always:
+        - name: Restore state of services
+          import_tasks: restore_services_state.yml
+          when: not __bootc_validation | d(false)

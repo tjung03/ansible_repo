@@ -1,0 +1,236 @@
+# SPDX-License-Identifier: MIT
+---
+# See https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html#role-argument-spec
+# and auditd.conf(5). Parsers accept case-insensitive keywords unless noted.
+# Options are listed alphabetically to match defaults/main.yml.
+argument_specs:
+  main:
+    short_description: Manage auditd and audit rules
+    options:
+      auditd_action_mail_acct:
+        type: str
+      auditd_admin_space_left:
+        type: str
+      auditd_admin_space_left_action:
+        type: str
+        choices:
+          - ignore
+          - syslog
+          - rotate
+          - email
+          - exec
+          - suspend
+          - single
+          - halt
+          - IGNORE
+          - SYSLOG
+          - ROTATE
+          - EMAIL
+          - EXEC
+          - SUSPEND
+          - SINGLE
+          - HALT
+      auditd_admin_space_left_action_exe:
+        type: str
+      auditd_backlog_wait_time:
+        type: raw
+      auditd_buffer_size:
+        type: int
+      auditd_disk_error_action:
+        type: str
+        choices:
+          - ignore
+          - syslog
+          - exec
+          - suspend
+          - single
+          - halt
+          - IGNORE
+          - SYSLOG
+          - EXEC
+          - SUSPEND
+          - SINGLE
+          - HALT
+      auditd_disk_error_action_exe:
+        type: str
+      auditd_disk_full_action:
+        type: str
+        choices:
+          - ignore
+          - syslog
+          - rotate
+          - exec
+          - suspend
+          - single
+          - halt
+          - IGNORE
+          - SYSLOG
+          - ROTATE
+          - EXEC
+          - SUSPEND
+          - SINGLE
+          - HALT
+      auditd_disk_full_action_exe:
+        type: str
+      auditd_distribute_network:
+        type: bool
+      auditd_enable_flag:
+        type: int
+      auditd_enable_krb5:
+        type: bool
+      auditd_end_of_event_timeout:
+        type: int
+      auditd_fail_mode:
+        type: int
+      auditd_flush:
+        type: str
+        choices:
+          - none
+          - incremental
+          - incremental_async
+          - data
+          - sync
+          - NONE
+          - INCREMENTAL
+          - INCREMENTAL_ASYNC
+          - DATA
+          - SYNC
+      auditd_freq:
+        type: int
+      auditd_krb5_key_file:
+        type: str
+      auditd_krb5_principal:
+        type: str
+      auditd_local_events:
+        type: bool
+      auditd_log_file:
+        type: path
+      auditd_log_format:
+        type: str
+        choices:
+          - raw
+          - nolog
+          - enriched
+          - RAW
+          - NOLOG
+          - ENRICHED
+      auditd_log_group:
+        type: str
+      auditd_loginuid_immutable:
+        type: bool
+      auditd_manage_rules:
+        type: bool
+      auditd_max_log_file:
+        type: int
+      auditd_max_log_file_action:
+        type: str
+        choices:
+          - ignore
+          - syslog
+          - exec
+          - suspend
+          - rotate
+          - keep_logs
+          - IGNORE
+          - SYSLOG
+          - EXEC
+          - SUSPEND
+          - ROTATE
+          - KEEP_LOGS
+      auditd_max_log_file_action_exe:
+        type: str
+      auditd_max_restarts:
+        type: int
+      auditd_maximum_rate:
+        type: raw
+      auditd_name:
+        type: str
+      auditd_name_format:
+        type: str
+        choices:
+          - none
+          - hostname
+          - fqd
+          - numeric
+          - user
+          - NONE
+          - HOSTNAME
+          - FQD
+          - NUMERIC
+          - USER
+      auditd_num_logs:
+        type: int
+      auditd_overflow_action:
+        type: str
+        choices:
+          - ignore
+          - syslog
+          - suspend
+          - single
+          - halt
+          - IGNORE
+          - SYSLOG
+          - SUSPEND
+          - SINGLE
+          - HALT
+      auditd_plugin_dir:
+        type: path
+      auditd_priority_boost:
+        type: int
+      auditd_purge_rules:
+        type: bool
+      auditd_q_depth:
+        type: int
+      auditd_report_interval:
+        type: str
+      auditd_reboot_ok:
+        type: bool
+      auditd_rules:
+        type: list
+        elements: dict
+      auditd_space_left:
+        type: str
+      auditd_space_left_action:
+        type: str
+        choices:
+          - ignore
+          - syslog
+          - rotate
+          - email
+          - exec
+          - suspend
+          - single
+          - IGNORE
+          - SYSLOG
+          - ROTATE
+          - EMAIL
+          - EXEC
+          - SUSPEND
+          - SINGLE
+      auditd_space_left_action_exe:
+        type: str
+      auditd_start_service:
+        type: bool
+      auditd_tcp_client_max_idle:
+        type: int
+      auditd_tcp_client_ports:
+        type: str
+      auditd_tcp_listen_port:
+        type: int
+      auditd_tcp_listen_queue:
+        type: int
+      auditd_tcp_max_per_addr:
+        type: int
+      auditd_transport:
+        type: str
+        choices:
+          - tcp
+          - krb5
+          - TCP
+          - KRB5
+      auditd_use_libwrap:
+        type: bool
+      auditd_verify_email:
+        type: bool
+      auditd_write_logs:
+        type: bool

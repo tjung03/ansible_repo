@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: MIT
+---
+
+# This task file configures QDevice in the cluster
+# and it is not handling QNetd configuration,
+# which is done in qnetd.yml file.
+
+- name: Block to remove existing QDevice configuration
+  run_once: true
+  block:
+    - name: Remove existing QDevice configuration
+      ansible.builtin.command:
+        cmd: crm cluster remove --qdevice --force --yes
+      register: __ha_cluster_remove_qdevice
+      check_mode: false
+      failed_when:
+      # Avoid failure if there is no QDevice configuration in the cluster.
+        - "'No QDevice configuration in this cluster' not in __ha_cluster_remove_qdevice.stderr"
+        - __ha_cluster_remove_qdevice.rc != 0
+      changed_when: __ha_cluster_remove_qdevice.rc == 0
+
+    - name: Show completed steps during QDevice removal
+      ansible.builtin.debug:
+        msg: "{{ __ha_cluster_remove_qdevice.stdout }}"
+      when: __ha_cluster_remove_qdevice.stdout | d('') | trim | length > 0
+
+  rescue:
+    - name: Fail if QDevice configuration could not be removed
+      ansible.builtin.fail:
+        msg: |
+          FAIL: Failed to remove existing QDevice configuration.
+          Stderr: {{ __ha_cluster_remove_qdevice.stderr }}
+          Stdout: {{ __ha_cluster_remove_qdevice.stdout }}
+
+
+- name: Block to configure QDevice
+  run_once: true
+  block:
+
+    - name: Show information before configuring QDevice
+      ansible.builtin.debug:
+        msg: |
+          INFO: QDevice configuration involves multiple steps
+          and might take a while to complete to configure connection
+          and update cluster properties.
+
+    - name: Configure QDevice
+      ansible.builtin.command:
+        cmd: >-
+          crm cluster init qdevice
+          --qnetd-hostname {{ __ha_cluster_qdevice_host }}
+          {{ __qdevice_algo }}
+          --force --yes
+      register: __ha_cluster_init_qdevice
+      check_mode: false
+      changed_when: true
+      vars:
+        __qdevice_algo: >-
+          {{ '--qdevice-algo ' ~ __ha_cluster_qdevice_algorithm | string
+            if __ha_cluster_qdevice_algorithm | trim | length > 0
+            else '' }}
+
+    - name: Show completed steps during QDevice initialization
+      ansible.builtin.debug:
+        msg: "{{ __ha_cluster_init_qdevice.stdout }}"
+      when: __ha_cluster_init_qdevice.stdout | d('') | trim | length > 0
+
+  rescue:
+    - name: Fail if QDevice configuration failed
+      ansible.builtin.fail:
+        msg: |
+          FAIL: Failed to configure QDevice.
+          {% if 'Failed to fix stonith-enabled property issue' in
+            __ha_cluster_init_qdevice.stderr %}
+          Property 'stonith-enabled' must be defined
+          in the variable 'ha_cluster_cluster_properties'.
+
+          {% elif 'Failed to fix fencing-enabled property issue' in
+            __ha_cluster_init_qdevice.stderr %}
+          Property 'fencing-enabled' must be defined
+          in the variable 'ha_cluster_cluster_properties'.
+          {% endif %}
+
+          Stderr: {{ __ha_cluster_init_qdevice.stderr }}
+          Stdout: {{ __ha_cluster_init_qdevice.stdout }}
+
+
+# Removing or adding QDevice configuration in existing cluster
+# requires restarting cluster services on all nodes to take effect. Example:
+# 'WARNING: To use qdevice service,
+# need to restart cluster service manually on each node'
+- name: Restart cluster if QDevice configuration requires it
+  ansible.builtin.command:
+    cmd: crm cluster restart --all
+  register: __ha_cluster_restart_after_qdevice
+  changed_when: true
+  when:
+    - '"need to restart cluster service" in __ha_cluster_remove_qdevice.stderr or "need to restart cluster service" in __ha_cluster_init_qdevice.stderr'

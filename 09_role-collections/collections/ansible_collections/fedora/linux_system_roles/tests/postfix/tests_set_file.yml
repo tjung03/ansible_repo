@@ -1,0 +1,56 @@
+---
+- name: Create a postmapped file
+  hosts: all
+
+  vars:
+    postfix_files:
+      - name: test
+        content: test
+        postmap: true
+    __test_file_suffix: "{{ '.lmdb' if postfix_default_database_type == 'lmdb' else '.db' }}"
+
+  tasks:
+    - name: Run the role with test postmap file
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        __sr_public: true
+
+    - name: Check if postmap file exists
+      stat:
+        path: /etc/postfix/test{{ __test_file_suffix }}
+      register: test_file
+      changed_when: false
+
+    - name: Assert file is present
+      assert:
+        that: test_file.stat.exists
+
+    - name: Set fact for relay_domains check (ansible version)
+      set_fact:
+        __sr_when_relay_domains_check: "{{ ansible_version['major'] > 2 or ansible_version['minor'] > 9 }}"
+
+    - name: Check relay_domains
+      when: __sr_when_relay_domains_check
+      block:
+      # cannot use postfix_default_database_type with postfix_conf
+      # in ansible 2.9
+        - name: Run the role to test postfix_default_database_type
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            postfix_conf:
+              relay_domains: "{{ postfix_default_database_type }}:/etc/postfix/relay_domains"
+
+        - name: Get relay_domains
+          command: postconf -h relay_domains
+          changed_when: false
+          register: __test_relay_domains
+
+        - name: Check relay_domains
+          assert:
+            that: __test_relay_domains.stdout | trim == postfix_default_database_type ~ ":/etc/postfix/relay_domains"
+
+    - name: Clean up test files
+      file:
+        path: /etc/postfix/test{{ __test_file_suffix }}
+        state: absent

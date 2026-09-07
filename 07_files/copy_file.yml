@@ -1,0 +1,12 @@
+---
+- name: 모듈 테스트 - copy
+  hosts: all
+  tasks:
+    - name: 대상 호스트에 파일 배포
+      # ~/files/users.txt --- 배포 ---> ~devops/users.txt
+      ansible.builtin.copy:
+        src: files/users.txt
+        dest: /home/devops/users.txt
+        owner: devops
+        group: devops
+        mode: '0640'

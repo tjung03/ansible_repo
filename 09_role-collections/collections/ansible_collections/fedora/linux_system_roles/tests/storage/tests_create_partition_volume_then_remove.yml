@@ -1,0 +1,84 @@
+---
+- name: Test partition volume creation and remove
+  hosts: all
+  become: true
+  vars:
+    storage_safe_mode: false
+    mount_location: '/opt/test1'
+    __storage_max_return: 1
+
+  tasks:
+    - name: Prep storage role and discover unused disks
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: Create a partition device mounted on {{ mount_location }}
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: "{{ unused_disks[0] }}"
+            type: partition
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                type: partition
+                fs_type: ext4
+                mount_point: "{{ mount_location }}"
+
+    - name: Verify role results
+      include_tasks: verify-role-results.yml
+
+    - name: Repeat the previous invocation minus fs_type to verify idempotence
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: "{{ unused_disks[0] }}"
+            type: partition
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                type: partition
+                mount_point: "{{ mount_location }}"
+
+    - name: Assert file system is preserved on existing partition volume
+      assert:
+        that:
+          - not blivet_output.changed
+          - blivet_output.pools[0].volumes[0].fs_type == 'ext4'
+        msg: File system not preserved on existing partition volume.
+
+    - name: Verify role results - 2
+      include_tasks: verify-role-results.yml
+
+    - name: Remove the partition created above
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: "{{ unused_disks[0] }}"
+            type: partition
+            disks: "{{ unused_disks }}"
+            state: absent
+            volumes:
+              - name: "{{ unused_disks[0] }}1"
+                type: partition
+                mount_point: "{{ mount_location }}"
+                state: absent
+
+    - name: Verify role results - 3
+      include_tasks: verify-role-results.yml
+
+    - name: Repeat the previous invocation to verify idempotence
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: "{{ unused_disks[0] }}"
+            type: partition
+            disks: "{{ unused_disks }}"
+            state: absent
+            volumes:
+              - name: "{{ unused_disks[0] }}1"
+                type: partition
+                mount_point: "{{ mount_location }}"
+                state: absent
+
+    - name: Verify role results - 4
+      include_tasks: verify-role-results.yml

@@ -1,0 +1,27 @@
+---
+- name: 0) 웹 서비스 구성
+  hosts: webserver
+  gather_facts: true
+  tasks:
+    ##################################################
+    # 1) 패키지 설치 - httpd
+    # 2) 서비스 기동 - httpd
+    # 3) 방화벽 등록 - http
+    ##################################################
+    - name: 1) 패키지 설치 - {{ ansible_local.custom.general.package }}
+      ansible.builtin.dnf:
+        name: "{{ ansible_local.custom.general.package }}"
+        state: present
+
+    - name: 2) 서비스 기동 - {{ ansible_local.custom.general.service }}
+      ansible.builtin.service:
+        name: "{{ ansible_local.custom.general.service }}"
+        state: "{{ ansible_local.custom.general.state }}"
+        enabled: true
+
+    - name: 3) 방화벽 등록 - {{ ansible_local.custom.general.fwsvc }}
+      ansible.posix.firewalld:
+        service: "{{ ansible_local.custom.general.fwsvc }}"
+        permanent: true
+        immediate: true
+        state: enabled

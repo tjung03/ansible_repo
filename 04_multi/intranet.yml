@@ -1,0 +1,58 @@
+---
+- name: 0) 웹 서버 설정
+  hosts: web1
+  tasks:
+    #####################################
+    # 1) 패키지 설치
+    # 2) 서비스 설정
+    # 3) 서비스 기동
+    # 4) 방화벽 등록
+    # 5) SELinux 설정
+    #####################################
+    # yum install -y httpd firewalld
+    - name: 1) 패키지 설치
+      ansible.builtin.yum:
+        name:
+          - httpd
+          - firewalld
+        state: present
+
+    # echo "HELLO" > /var/www/html/index.html
+    - name: 2) 서비스 설정
+      ansible.builtin.copy:
+        content: "HELLO\n"
+        dest: /var/www/html/index.html
+        owner: root
+        group: root
+        mode: '0644'
+
+    # systemctl enable --now httpd
+    - name: 3) 서비스 기동 - httpd
+      ansible.builtin.service:
+        name: httpd
+        state: started
+        enabled: true
+
+    - name: 3) 서비스 기동 - firewalld
+      ansible.builtin.service:
+        name: firewalld
+        state: started
+        enabled: true
+
+    # firewall-cmd --permanent --add-service=http
+    # firewall-cmd --add-service=http
+    - name: 4) 방화벽 등록
+      ansible.posix.firewalld:
+        service: http
+        permanent: true
+        immediate: true
+        state: enabled
+
+- name: 0) 웹 확인
+  hosts: localhost
+  tasks:
+    - name: 1) web1 웹 접속 확인
+      ansible.builtin.uri:
+        url: http://web1.example.com
+        return_content: true
+        status_code: 200

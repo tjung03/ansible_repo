@@ -1,0 +1,48 @@
+---
+- stat: path={{ src }}/git-{{ git_version }}.tar.xz
+  register: git_src
+
+- stat: path={{ src }}/git-{{ git_version }}
+  register: git_dir
+
+- stat: path={{ src }}/gitflow
+  register: gitflow_dir
+
+- stat: path=/usr/local/bin/git-flow
+  register: gitflow_path
+
+- name: remove package for rpm
+  yum: name=git state=absent
+  when: "ansible_os_family == 'RedHat'"
+
+- name: remove package for deb
+  apt: name=git-core state=absent
+  when: "ansible_os_family == 'Debian'"
+  
+- name: get src
+  get_url: url=https://www.kernel.org/pub/software/scm/git/git-{{ git_version }}.tar.xz dest={{ src }}/git-{{ git_version }}.tar.xz
+  when: not git_src.stat.exists
+
+- name: extract src
+  command: tar xJf {{ src }}/git-{{ git_version }}.tar.xz chdir={{ src }}
+  when: not git_dir.stat.exists
+
+- name: configure
+  command: ./configure chdir={{ src }}/git-{{ git_version }}
+
+- name: make install
+  command: make install chdir={{ src }}/git-{{ git_version }}
+
+- name: ensure github.com is a known host
+  lineinfile:
+    dest: ~/.ssh/known_hosts
+    create: yes
+    state: present
+    line: "{{ lookup('pipe', 'ssh-keyscan -t rsa github.com') }}"
+    regexp: "^github\\.com"
+
+- name: install gitflow
+  shell: wget -q -O - --no-check-certificate https://github.com/nvie/gitflow/raw/develop/contrib/gitflow-installer.sh | bash
+  environment:
+    PATH: /bin:/usr/bin/:/usr/local/bin
+  when: not gitflow_path.stat.exists

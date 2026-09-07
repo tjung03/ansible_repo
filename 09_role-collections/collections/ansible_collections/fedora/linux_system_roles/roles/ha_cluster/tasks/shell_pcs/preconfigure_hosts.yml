@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: MIT
+---
+
+# The user is created by installing pacemaker packages.
+# We just need to set the password.
+- name: Provide a password for the hacluster user
+  when:
+    - ha_cluster_hacluster_password | string | length > 0
+  block:
+    - name: Generate a password hash
+    # The arg `-6` means SHA512 based algorithms.
+      ansible.builtin.command:
+        cmd: >-
+          openssl passwd
+            -6
+            -salt {{ ansible_facts['hostname'].replace('-', 'x') | quote }}
+            {{ ha_cluster_hacluster_password | string | quote }}
+      register: __ha_cluster_openssl_call_result
+      changed_when: false
+      no_log: "{{ ha_cluster_secure_logging }}"
+
+    - name: Set hacluster password
+      ansible.builtin.user:
+        name: hacluster
+        password: "{{ __ha_cluster_openssl_call_result.stdout }}"
+
+- name: Configure shell
+  ansible.builtin.include_tasks:
+    file: configure-shell.yml
+
+- name: Configure firewall and selinux
+  when:
+    - ha_cluster_cluster_present | bool or ha_cluster_qnetd.present | d(false)
+  block:
+    - name: Configure firewall
+      ansible.builtin.include_tasks:
+        file: "{{ role_path }}/tasks/shell_common/firewall.yml"
+
+    - name: Configure selinux
+      ansible.builtin.include_tasks:
+        file: "{{ role_path }}/tasks/shell_common/selinux.yml"

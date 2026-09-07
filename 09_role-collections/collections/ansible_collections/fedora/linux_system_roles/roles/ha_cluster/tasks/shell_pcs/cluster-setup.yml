@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: MIT
+---
+
+- name: Distribute fence-virt authkey
+  ansible.builtin.include_tasks:
+    file: "{{ role_path }}/tasks/shell_common/distribute-fence-virt-key.yml"
+  when:
+    - ansible_facts["architecture"] == "x86_64"
+
+- name: Configure SBD
+  ansible.builtin.include_tasks:
+    file: sbd.yml
+
+- name: Configure corosync
+  ansible.builtin.include_tasks:
+    file: cluster-setup-corosync.yml
+
+- name: Cluster auth
+# Auth is run after corosync.conf has been distributed so that pcs
+# distributes pcs tokens in the cluster automatically.
+  ansible.builtin.include_tasks:
+    file: cluster-auth.yml
+
+- name: Distribute cluster shared keys
+# This is run after pcs auth, so that the nodes are authenticated against
+# a qnetd host, if configured, and can connect to the qnetd host's pcsd
+# to get qnetd certificates.
+  ansible.builtin.include_tasks:
+    file: cluster-setup-keys.yml
+
+- name: Enable or disable cluster services on boot
+  ansible.builtin.include_tasks:
+    file: "{{ role_path }}/tasks/shell_common/cluster-enable-disable.yml"
+
+- name: Start the cluster and reload corosync.conf
+  ansible.builtin.include_tasks:
+    file: cluster-start-and-reload.yml
+
+- name: Create and push CIB
+  ansible.builtin.include_tasks:
+    file: create-and-push-cib.yml
+# CIB changes should be done only on one of cluster nodes to avoid
+# corruption and inconsistency of resulting cibadmin patch file.
+  run_once: true

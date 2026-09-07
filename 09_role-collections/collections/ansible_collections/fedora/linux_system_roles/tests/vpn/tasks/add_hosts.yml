@@ -1,0 +1,17 @@
+---
+- name: Dynamically add multiple hosts for testing
+  add_host:
+    name: "{{ 'host%02x.local' | format(item) }}"
+    groups: testing
+    cert_name: "{{ __vpn_dynamic_hosts_sample_cert }}"
+    __vpn_current_ip: "{{ __vpn_dynamic_hosts_sample_ip }}"
+    __vpn_current_subnet: "{{ __vpn_dynamic_hosts_sample_cidr }}"
+  loop: "{{ range(1, __vpn_num_hosts + 1) | list }}"
+
+- name: Create mock vpn_connections
+  set_fact:
+    vpn_connections:
+      - hosts: "{{ myhosts }}"
+  vars:
+    myhosts: "{{ dict(hostlist | product(['']) | list) }}"
+    hostlist: "{{ (ansible_play_batch + groups['testing'] + [inventory_hostname]) | unique | map('regex_replace', '^.*/.*', __vpn_main_hostname) | list }}"

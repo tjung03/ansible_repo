@@ -1,0 +1,59 @@
+---
+- name: 0) DB 설치
+  hosts: databases
+  gather_facts: false
+  remote_user: root
+  tasks:
+    ##########################################################################
+    # 1) DB 패키지 설치 - mariadb,  mariadb-server, python3-PyMySQL
+    # 2) DB 기동 - mariadb
+    #   - [참고] DB 최초 기동 시 한 번만 => root 암호 설정
+    # 3) DB 주 설정 수정
+    #   - /var/www/html/my.cnf.standard -- copy --> /etc/my.cnf
+    #   - [참고] DB 재기동
+    ##########################################################################
+    # 1) DB 패키지 설치 - mariadb,  mariadb-server, python3-PyMySQL
+    - name: 1) DB 패키지 설치 - mariadb,  mariadb-server, python3-PyMySQL
+      ansible.builtin.dnf:
+        name:
+          - mariadb
+          - mariadb-server
+          - python3-PyMySQL
+        state: latest
+
+    # 2) DB 기동 - mariadb
+    #   - [참고] DB 최초 기동 시 한 번만 => root 암호 설정
+    - name: 2) DB 기동 - mariadb
+      ansible.builtin.systemd:
+        name: mariadb
+        state: started
+        enabled: true
+      notify:
+        - Set DB passwd
+
+    # 3) DB 주 설정 수정
+    #   - /var/www/html/my.cnf.standard -- copy --> /etc/my.cnf
+    #   - [참고] DB 재기동
+    - name: 3) DB 주 설정 수정
+      ansible.builtin.get_url:
+        url: 'http://192.168.10.10/my.cnf.standard'
+        dest: /etc/my.cnf
+        mode: '0644'
+      notify:
+        - Restart DB
+
+  handlers:
+    - name: Set DB passwd
+      community.mysql.mysql_user:
+        name: root
+        password: 'CHANGE_ME'
+        priv: '*.*:ALL'
+        state: present
+        login_user: root
+        login_password: 'CHANGE_ME'
+        login_unix_socket: /var/lib/mysql/mysql.sock
+
+    - name: Restart DB
+      ansible.builtin.systemd:
+        name: mariadb
+        state: restarted

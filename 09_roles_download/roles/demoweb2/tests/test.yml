@@ -1,0 +1,5 @@
+---
+- name: Demo Web
+  hosts: localhost
+  roles:
+    - demoweb

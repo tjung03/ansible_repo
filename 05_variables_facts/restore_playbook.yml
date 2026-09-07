@@ -1,0 +1,45 @@
+---
+- name: Restore playbook.yml
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - vars/web.yml
+  tasks:
+    # 1) 방화벽 서비스 제거 - http(80/tcp), https(443/tcp)
+    - name: 1) 방화벽 서비스 제거
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: disabled
+      loop: "{{ fw_webs }}"
+      ignore_errors: true
+
+    # 2) 서비스 종료 - httpd, firewalld
+    - name: 2) 서비스 종료
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop: "{{ svcs }}" 
+
+    # 3) 서비스 설정 삭제 - 파일 삭제
+    #   3-1) /var/www/html/.htaccess 삭제
+    #   3-2) /etc/httpd/secrets 삭제
+    #   3-3) /var/www/html/index.html 삭제
+    - name: 3) 서비스 설정 삭제
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/www/html/.htaccess
+        - /etc/httpd/secrets
+        - /var/www/html/index.html
+
+    # 4) 패키지 삭제 - http, mod_ssl
+    - name: 4) 패키지 삭제
+      ansible.builtin.dnf:
+        name:
+          - httpd
+          - mod_ssl
+        state: present

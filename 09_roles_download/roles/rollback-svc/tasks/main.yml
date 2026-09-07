@@ -1,0 +1,39 @@
+---
+# tasks file for roles/rollback-svc
+###########################################################
+# 1) 방화벽 서비스 제거 - (필수 변수) http, https
+# 2) 서비스 종료 - (필수 변수) httpd, firewalld
+# 3) 서비스 설정 제거 (필수 변수)
+#   * /var/www/vhost/{{ inventory_hostname }}/index.html
+#   * /var/www/vhost/{{ inventory_hostname }}
+#   * /etc/httpd/conf.d/vhost.conf
+# 4) 패키지 삭제 - (필수 변수) httpd, mod_ssl
+###########################################################
+- name: Close the firewall service port
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: disabled
+  loop: "{{ fw_svcs }}"
+  ignore_errors: true
+
+- name: Stop the services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: "{{ svcs }}"
+  ignore_errors: true
+
+- name: Rollback the service configuration
+  ansible.builtin.file:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ files }}"
+
+- name: Remove the packages
+  ansible.builtin.dnf:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ pkgs }}"

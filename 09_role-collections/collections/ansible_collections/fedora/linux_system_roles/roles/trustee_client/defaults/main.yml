@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+---
+# Here is the right place to put the role's input variables.
+# This file also serves as a documentation for such a variables.
+
+# Trustee Guest Components Quadlet (see vars/main.yml for quadlet repo defaults)
+trustee_client_trustee_gc: true
+
+# Trustee KBS configuration
+trustee_client_kbs_url: ""
+trustee_client_kbs_cert_content: ""
+trustee_client_kbs_cert_src: ""  # Path to cert file (alternative to trustee_client_kbs_cert_content)
+
+# Secret registration client configuration
+trustee_client_secret_registration_enabled: false
+
+# Encrypt disk configuration
+trustee_client_encrypt_disk: false
+trustee_client_encrypt_disk_mount_point: "/mnt/encrypted-disk"
+trustee_client_secure_logging: true

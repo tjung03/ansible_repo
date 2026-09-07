@@ -1,0 +1,14 @@
+---
+# Play
+- name: 2. 웹 요청
+  hosts: localhost
+  become: false
+  gather_facts: false
+  tasks:
+    - name: 2-web) 웹 요청 - {{ url_webs }}
+      ansible.builtin.uri:
+        url: "{{ item }}"
+        return_content: true
+        status_code: 200
+        validate_certs: false
+      loop: "{{ url_webs }}"

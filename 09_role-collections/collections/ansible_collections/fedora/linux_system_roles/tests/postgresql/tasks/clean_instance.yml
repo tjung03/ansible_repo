@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Run handlers
+  meta: flush_handlers
+
+- name: Uninstall postgresql
+  package:
+    name: "{{ __postgresql_packages + __cleanup_packages }}"
+    state: absent
+  when: not __postgresql_is_ostree | d(false)
+  vars:
+    __cleanup_packages:
+      - postgresql
+      - postgresql-any
+      - postgresql-private-libs
+      - postgresql{{ postgresql_version }}
+      - postgresql{{ postgresql_version }}-any
+      - postgresql{{ postgresql_version }}-private-libs
+
+- name: Stop and disable postgresql service
+  service:
+    name: postgresql
+    state: "{{ 'stopped' if __postgresql_is_booted else omit }}"
+    enabled: false
+  when: __postgresql_is_ostree | d(false)
+
+- name: Remove data directory
+  file:
+    path: "{{ __postgresql_data_dir }}"
+    state: absent
+
+- name: Remove config files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ __postgresql_main_conf_file }}"
+    - "{{ __postgresql_hba_conf_file }}"
+    - "{{ __postgresql_conf_file }}"
+    - "{{ __postgresql_internal_conf_file }}"
+
+- name: Dump logs
+  command: journalctl -u postgresql
+  changed_when: false

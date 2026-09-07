@@ -1,0 +1,12 @@
+---
+# Task
+# 웹 서버 설정(/var/www/html/index.html) - import_tasks
+- name: 1-file-1) 웹 서버 설정 - {{ file_web }}
+  ansible.builtin.copy:
+    content: |
+      <pre><h1>
+      Hostname: {{ ansible_fqdn }}
+      Ip: {{ ansible_default_ipv4.address }}
+      </h1></pre>
+    dest: "{{ file_web }}"
+    mode: '0644'

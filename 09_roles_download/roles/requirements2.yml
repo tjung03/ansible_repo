@@ -1,0 +1,3 @@
+- name: demoweb2
+  src: http://ansible.example.com/demoweb.tgz
+

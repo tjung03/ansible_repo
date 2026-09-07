@@ -1,0 +1,28 @@
+standard-inventory-qcow2:
+  qemu:
+    m: 2048
+    drive:
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi
+      - size: 3221225472
+        interface: scsi

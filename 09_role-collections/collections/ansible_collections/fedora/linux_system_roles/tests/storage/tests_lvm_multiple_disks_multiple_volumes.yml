@@ -1,0 +1,66 @@
+---
+- name: Test lvm multiple disks multiple volumes
+  hosts: all
+  become: true
+  vars:
+    mount_location1: '/opt/test1'
+    mount_location2: '/opt/test2'
+    volume_group_size: '5g'
+    volume_size: '4g'
+    __storage_min_size: "{{ volume_group_size }}"
+    __storage_max_return: 2
+    __storage_disks_needed: 2
+    __storage_match_sector_size: true
+  tags:
+    - tests::lvm
+  tasks:
+    - name: Prep storage role and discover unused disks
+      ansible.builtin.include_tasks: tasks/setup.yml
+
+    - name: >-
+        Create a logical volume spanning two physical volumes that changes its
+        mount location
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: phi
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                size: "{{ volume_size }}"
+                mount_point: "{{ mount_location1 }}"
+              - name: test2
+                size: "{{ volume_size }}"
+                mount_point: "{{ mount_location2 }}"
+
+    - name: Verify role results
+      include_tasks: verify-role-results.yml
+
+    - name: Repeat the previous invocation to verify idempotence
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: phi
+            disks: "{{ unused_disks }}"
+            volumes:
+              - name: test1
+                size: "{{ volume_size }}"
+                mount_point: "{{ mount_location1 }}"
+              - name: test2
+                size: "{{ volume_size }}"
+                mount_point: "{{ mount_location2 }}"
+
+    - name: Verify role results - 2
+      include_tasks: verify-role-results.yml
+
+    - name: Clean up
+      include_tasks: tasks/run_role_with_clear_facts.yml
+      vars:
+        storage_pools:
+          - name: phi
+            disks: "{{ unused_disks }}"
+            volumes: []
+            state: absent
+
+    - name: Verify role results - 3
+      include_tasks: verify-role-results.yml

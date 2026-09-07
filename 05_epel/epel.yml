@@ -1,0 +1,18 @@
+---
+- name: 패키지 설치
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: 1) 패키지 설치
+      ansible.builtin.include_tasks:
+        file: installpkg.yml
+      vars:
+        pkgs:
+          - epel-release
+
+    - name: 2) 패키지 설치
+      ansible.builtin.include_tasks:
+        file: installpkg.yml
+      vars:
+        pkgs:
+          - boxes

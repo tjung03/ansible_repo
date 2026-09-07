@@ -1,0 +1,175 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Simple journald role invocation
+  hosts: all
+  vars:
+    journald_persistent: true
+    journald_max_disk_size: 2048
+    journald_per_user: true
+    journald_sync_interval: 1
+    journald_forward_to_syslog: true
+    journald_rate_limit_burst: 2000
+    journald_rate_limit_interval_sec: 2
+    journald_keep_free: 10
+    journald_max_retention: 30
+    __service_files:
+      - systemd-journald.service
+      - systemd-journal-flush.service
+
+  tasks:
+    - name: Run test
+      block:
+        - name: Make a copy of the service files
+          copy:
+            src: /usr/lib/systemd/system/{{ item }}
+            dest: /etc/systemd/system/{{ item }}
+            remote_src: true
+            mode: preserve
+          loop: "{{ __service_files }}"
+
+        - name: Change the startlimit to avoid errors with excessive journald restarts
+          lineinfile:
+            path: /etc/systemd/system/{{ item }}
+            insertafter: ^\[Unit\]
+            line: StartLimitIntervalSec=0
+          loop: "{{ __service_files }}"
+
+        - name: Make a copy of the systemd-journald.service
+          copy:
+            src: /usr/lib/systemd/system/systemd-journald.service
+            dest: /etc/systemd/system/systemd-journald.service
+            remote_src: true
+            mode: preserve
+
+        - name: Change the startlimit to avoid errors with excessive journald restarts
+          lineinfile:
+            path: /etc/systemd/system/systemd-journald.service
+            insertafter: ^\[Unit\]
+            line: StartLimitIntervalSec=0
+
+        - name: Reload systemd to ensure startlimit changes take effect upon restart
+          systemd:
+            daemon_reload: true
+
+        - name: Run the role
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+
+      # Make sure services are restarted before we verify system state
+      # is correct
+        - name: Flush handlers
+          meta: flush_handlers
+
+        - name: Get systemd-journald service state
+          command:
+          # noqa command-instead-of-module
+            cmd: systemctl show --property SubState systemd-journald.service
+          register: systemctl
+          changed_when: false
+
+        - name: Verify that systemd-journald is running
+          assert:
+            that: systemctl.stdout == 'SubState=running'
+
+        - name: Verify that syslog is set properly
+          command: >-
+            grep ForwardToSyslog=yes
+            "{{ __journald_dropin_dir }}/{{ __journald_dropin_conf }}"
+          changed_when: false
+
+        - name: Verify that rate limit interval is set properly
+          command: >-
+            grep RateLimitIntervalSec=2s
+            "{{ __journald_dropin_dir }}/{{ __journald_dropin_conf }}"
+          changed_when: false
+
+        - name: Verify that rate limit burst is set properly
+          command: >-
+            grep RateLimitBurst=2000
+            "{{ __journald_dropin_dir }}/{{ __journald_dropin_conf }}"
+          changed_when: false
+
+        - name: Verify that system keep free is set properly
+          command: >-
+            grep SystemKeepFree=10
+            "{{ __journald_dropin_dir }}/{{ __journald_dropin_conf }}"
+          changed_when: false
+
+        - name: Verify that max retention is set properly
+          command: >-
+            grep MaxRetentionSec=30m
+            "{{ __journald_dropin_dir }}/{{ __journald_dropin_conf }}"
+          changed_when: false
+
+        - name: Verify that /var/log/journal/$MACHINE_ID/system.journal exists
+          stat:
+            path: /var/log/journal/{{ ansible_facts['machine_id'] }}/system.journal
+          register: __stat
+          failed_when: not __stat.stat.exists
+
+        - name: Verify that system.journal is in online state
+          shell:
+            cmd: >
+              set -euo pipefail;
+              journalctl --header
+              --file /var/log/journal/{{ ansible_facts['machine_id'] }}/system.journal |
+              grep -q 'State: ONLINE'
+          changed_when: false
+
+        - name: Verify that system.journal is compressed
+          shell:
+            cmd: >
+              set -euo pipefail;
+              journalctl --header
+              --file /var/log/journal/{{ ansible_facts['machine_id'] }}/system.journal |
+              grep -q COMPRESSED
+          changed_when: false
+
+        - name: Verify that system journal can have maximum size of 2.0G
+          shell:
+            cmd: >
+              set -euo pipefail;
+              journalctl -b -u systemd-journald -p info |
+              grep -E "((System [Jj]ournal)|(Permanent journal)) .*max" | tail -n 1 |
+              grep -q -E 'max( allowed)? 2([.]0)?G'
+          changed_when: false
+
+        - name: Check generated files for ansible_managed, fingerprint
+          include_tasks: tasks/check_header.yml
+          vars:
+            __file: "{{ __journald_dropin_dir }}/{{ __journald_dropin_conf }}"
+            __fingerprint: "system_role:journald"
+
+      rescue:
+        - name: Debug
+          shell: |
+            set -x
+            exec 1>&2
+            journalctl -ex
+            journalctl -b -u systemd-journald
+            cat "{{ __journald_dropin_dir }}/{{ __journald_dropin_conf }}"
+          changed_when: false
+          failed_when: true
+
+      always:
+        - name: Cleanup
+          file:
+            path: "{{ __journald_dropin_dir }}/{{ __journald_dropin_conf }}"
+            state: absent
+
+        - name: Remove copy of the service files
+          file:
+            path: /etc/systemd/system/{{ item }}
+            state: absent
+          loop: "{{ __service_files }}"
+
+        - name: Reload systemd to cleanup
+          systemd:
+            daemon_reload: true
+
+        - name: Restart journald services
+          service:
+            name: "{{ item }}"
+            state: restarted
+          loop: "{{ __journald_services }}"

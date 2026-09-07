@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: MIT
+---
+- name: Test the role with graph service enabled
+  hosts: all
+  vars:
+    metrics_graph_service: true
+
+  pre_tasks:
+    - name: Stop test
+      meta: end_host
+      when: (ansible_facts['distribution'] in ['RedHat', 'CentOS'] and ansible_facts['distribution_major_version'] | int < 8) or ansible_facts['distribution'] not in ['Fedora', 'RedHat', 'CentOS']
+
+    - name: Save state of services
+      import_tasks: get_services_state.yml
+
+  tasks:
+    - name: Run test
+      block:
+        - name: Ensure facts and vars used by tests are set
+          include_role:
+            name: fedora.linux_system_roles.metrics
+            public: true
+            tasks_from: set_vars.yml
+
+        - name: Generate grafana cert and key using the certificate system role
+          include_role:
+            name: fedora.linux_system_roles.certificate
+          vars:
+            certificate_requests:
+              - name: grafana-server
+                dns: ['localhost', 'www.example.com']
+                ca: self-sign
+                group: root
+          when: __metrics_is_booted | bool
+
+        - name: Run the role
+          include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            metrics_grafana_cert: "{{ '/etc/pki/tls/certs/grafana-server.crt' if __metrics_is_booted else '' }}"
+            metrics_grafana_private_key: "{{ '/etc/pki/tls/private/grafana-server.key' if __metrics_is_booted else '' }}"
+
+        - name: Flush handlers
+          meta: flush_handlers
+
+        - name: Check if Grafana & Grafana-PCP work
+          include_tasks: "{{ item }}"
+          loop:
+            - check_grafana.yml
+            - check_grafanapcp.yml
+            - check_firewall_selinux.yml
+          vars:
+            __metrics_grafana_protocol: https
+
+      rescue:
+        - name: Handle failure case
+          include_tasks: handle_test_failure.yml
+
+      always:
+        - name: Restore state of services
+          include_tasks: restore_services_state.yml
+          tags: tests::cleanup
+
+        - name: Test - clean up tracked certificate
+          command: >
+            getcert stop-tracking
+            -f /etc/pki/tls/certs/grafana-server.crt
+          changed_when: false
+          tags: tests::cleanup
+          when: __metrics_is_booted | bool
+
+        - name: Delete certificates
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/pki/tls/certs/grafana-server.crt
+            - /etc/pki/tls/private/grafana-server.key
+          tags: tests::cleanup
+          when: __metrics_is_booted | bool

@@ -1,0 +1,8 @@
+---
+- name: Restore playbook.yml
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Rollback playbook
+      ansible.builtin.include_role:
+        name: rollback-svc

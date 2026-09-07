@@ -1,0 +1,11 @@
+---
+- name: Restore epel.yml
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: 1) 패키지 삭제
+      ansible.builtin.include_tasks:
+        file: remove_package.yml
+      vars:
+        pkgs:
+          - boxes

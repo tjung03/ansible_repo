@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: MIT
+---
+# Remove artifacts created by linux-system-roles.trustee_server on test hosts.
+# Uses role paths set when tests run the role with public: true (__sr_public).
+- name: Stat secret registration server systemd unit
+  ansible.builtin.stat:
+    path: /etc/systemd/system/secret_registration_server.service
+  register: __trustee_server_cleanup_secret_reg_unit
+  tags:
+    - tests::cleanup
+
+- name: Stop and disable secret registration server service
+  ansible.builtin.systemd:
+    name: secret_registration_server.service
+    state: stopped
+    enabled: false
+  when: __trustee_server_cleanup_secret_reg_unit.stat.exists
+  tags:
+    - tests::cleanup
+
+- name: Find trustee pod quadlet file
+  ansible.builtin.find:
+    paths: "{{ __trustee_server_quadlet_install_dir }}"
+    patterns: "*.pod"
+    recurse: false
+  register: __trustee_server_cleanup_pod
+  tags:
+    - tests::cleanup
+
+- name: Stop and disable trustee pod service
+  ansible.builtin.systemd:
+    name: "{{ (__trustee_server_cleanup_pod.files[0].path | basename | replace('.pod', '-pod.service')) }}"
+    state: stopped
+    enabled: false
+  when: __trustee_server_cleanup_pod.matched | int > 0
+  tags:
+    - tests::cleanup
+
+- name: Remove trustee quadlet unit files
+  ansible.builtin.file:
+    path: "{{ __trustee_server_quadlet_install_dir }}/{{ item }}"
+    state: absent
+  loop:
+    - as-data.volume
+    - kbs-data.volume
+    - rvps-data.volume
+    - trustee-as.container
+    - trustee-kbs.container
+    - trustee-rvps.container
+    - trustee.pod
+  tags:
+    - tests::cleanup
+
+- name: Remove trustee server config directory
+  ansible.builtin.file:
+    path: "{{ __trustee_server_config_dir }}"
+    state: absent
+  tags:
+    - tests::cleanup
+
+- name: Remove secret registration server systemd unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/secret_registration_server.service
+    state: absent
+  when: __trustee_server_cleanup_secret_reg_unit.stat.exists
+  tags:
+    - tests::cleanup
+
+- name: Remove secret registration server script
+  ansible.builtin.file:
+    path: /usr/local/bin/secret_registration_server.py
+    state: absent
+  tags:
+    - tests::cleanup
+
+- name: Reload systemd after removing units
+  ansible.builtin.systemd:
+    daemon_reload: true
+  tags:
+    - tests::cleanup

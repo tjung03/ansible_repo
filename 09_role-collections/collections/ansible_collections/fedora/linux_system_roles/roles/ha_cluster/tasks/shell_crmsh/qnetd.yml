@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+---
+# QNetD on SUSE does not require configuration steps,
+# because everything is handled by 'crm cluster init qdevice'
+# from cluster nodes with QDevice.
+# This includes configuration and starting of service.
+
+- name: Install QNetd packages
+  ansible.builtin.package:
+    name: "{{ __ha_cluster_qnet_node_packages | d([]) }}"
+    state: "{{ 'latest' if ha_cluster_use_latest_packages else 'present' }}"
+    use: "{{ (__ha_cluster_is_ostree | d(false)) | ternary('ansible.posix.rhel_rpm_ostree', omit) }}"

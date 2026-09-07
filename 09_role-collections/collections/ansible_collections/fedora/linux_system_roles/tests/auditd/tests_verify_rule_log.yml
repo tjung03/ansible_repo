@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: MIT
+---
+# Integration test: verify that the audit event for a rule is logged.
+- name: Verify audit event for a rule is logged
+  hosts: all
+  tasks:
+    - name: Exercise role and validate configuration
+      block:
+        - name: Back up existing auditd configuration and rules
+          ansible.builtin.include_tasks: tasks/setup.yml
+
+        - name: Configure a rule to audit writing to /etc/hosts
+          ansible.builtin.include_tasks: tasks/run_role_with_clear_facts.yml
+          vars:
+            __sr_public: true
+            auditd_manage_rules: true
+            auditd_purge_rules: true
+            auditd_rules:
+              - action: always
+                filter: exit
+                arch: b64
+                path: /etc/hosts
+                permission:
+                  - write
+                keyname: auditd_test_rule_log
+
+        - name: Flush handlers
+          ansible.builtin.meta: flush_handlers
+
+        - name: Write to /etc/hosts
+          ansible.builtin.shell: echo "# 127.0.0.1 auditd_test_rule_log" >> /etc/hosts
+          changed_when: false
+
+        - name: Verify audit event for auditd_test_rule_log
+          ansible.builtin.command: ausearch -k auditd_test_rule_log -f /etc/hosts --format text
+          changed_when: false
+          register: __audit_event
+          failed_when: __audit_event.stdout is not search("opened-file /etc/hosts")
+
+      rescue:
+        - name: Debug failure
+          ansible.builtin.shell:
+            executable: bash
+            cmd: |
+              set -euxo pipefail
+              exec 1>&2
+              ausearch -k auditd_test_rule_log --format text || :
+              ausearch -k auditd_test_rule_log -f /etc/hosts --format text || :
+              ausearch -f /etc/hosts --format text || :
+              journalctl -ex | grep audit || :
+          changed_when: false
+          failed_when: true
+
+      always:
+        - name: Restore system state after test
+          ansible.builtin.include_tasks: tasks/cleanup.yml
+          tags: tests::cleanup

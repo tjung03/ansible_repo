@@ -1,0 +1,69 @@
+---
+- name: Test issuing certificate with principal.
+  hosts: all
+  vars:
+    certificate_requests:
+      - name: mycert_principal
+        dns: www.example.com
+        principal: HTTP/www.example.com@EXAMPLE.COM
+        ca: self-sign
+  tasks:
+    - name: Run the role
+      include_tasks: tasks/run_role_with_clear_facts.yml
+
+- name: Verify certificate
+  hosts: all
+  pre_tasks:
+    - name: Load certificate role platform variables
+      include_role:
+        name: fedora.linux_system_roles.certificate
+        tasks_from: set_vars.yml
+        public: true
+  vars:
+    certificates:
+      - path: "{{ __certificate_default_directory }}/certs/mycert_principal.crt"
+        key_path: "{{ __certificate_default_directory }}/private/mycert_principal.key"
+        subject:
+          - name: commonName
+            oid: 2.5.4.3
+            value: www.example.com
+        subject_alt_name:
+          - name: DNS
+            value: www.example.com
+          - name: Universal Principal Name (UPN)
+            value: HTTP/www.example.com@EXAMPLE.COM
+            oid: 1.3.6.1.4.1.311.20.2.3
+          - name: Kerberos principalname
+            value: HTTP/www.example.com@EXAMPLE.COM
+            oid: 1.3.6.1.5.2.2
+  tasks:
+    - name: Verify each certificate
+      include_tasks: tasks/assert_certificate_parameters.yml
+      loop: "{{ certificates }}"
+      loop_control:
+        loop_var: cert
+
+- name: Test issuing certificate with invalid principal.
+  hosts: all
+  vars:
+    certificate_requests:
+      - name: mycertinvalid
+        dns: www.example.com
+        principal: HTTP/abc
+        ca: self-sign
+  tasks:
+    - name: Run test
+      vars:
+        expected_error_msg: >-
+          It should be formatted as 'primary/instance@REALM'
+      block:
+        - name: Import certificate role
+          include_tasks: tasks/run_role_with_clear_facts.yml
+        - name: Failed
+          fail:
+            msg: "certificate with invalid principal"
+      rescue:
+        - name: Assert...
+          assert:
+            that:
+              - expected_error_msg in ansible_failed_result.results.0.msg

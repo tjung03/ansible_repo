@@ -1,0 +1,67 @@
+# Trustee Reference Value Provider Service (RVPS)
+# Manages reference values for attestation evidence verification
+#
+# RVPS is the first service to start - it has no dependencies on other Trustee services.
+# The Attestation Service (AS) connects to RVPS to fetch reference values.
+
+[Unit]
+Description=Trustee Reference Value Provider Service
+Documentation=https://docs.redhat.com/en/documentation/openshift_sandboxed_containers/1.10/html/deploying_trustee/
+
+# Network dependencies
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+# Container image - uses Red Hat registry
+# For development/testing, override with: Image=quay.io/confidential-containers/rvps:latest
+Image=quay.io/linux-system-roles/trustee-rvps:0.15.0
+Pod=trustee.pod
+
+# Container name for DNS resolution on the trustee network
+ContainerName=trustee-rvps
+
+# Configuration mount (read-only)
+# Mount host config directory to container
+Volume=/etc/trustee/rvps:/etc/rvps:ro,Z
+
+# Data persistence
+Volume=rvps-data.volume:/var/lib/rvps:Z
+
+# Environment variables
+Environment=RUST_LOG=info
+Environment=RVPS_CONFIG_FILE=/etc/rvps/config.json
+
+# Security hardening
+NoNewPrivileges=true
+
+# Drop all capabilities - RVPS doesn't need any
+DropCapability=ALL
+
+# Health check - verify gRPC port is listening
+# Note: grpc_health_probe may not be available; fall back to port check
+HealthCmd=sh -c 'ss -tlnp | grep -q 50003 || exit 1'
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=10s
+
+# Resource limits (adjust based on workload)
+# Memory=256M
+
+[Service]
+# Restart policy
+Restart=on-failure
+RestartSec=10s
+
+# Startup/shutdown timeouts
+TimeoutStartSec=90s
+TimeoutStopSec=30s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trustee-rvps
+
+[Install]
+WantedBy=multi-user.target default.target

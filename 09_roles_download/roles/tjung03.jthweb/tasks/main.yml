@@ -1,0 +1,39 @@
+---
+# tasks file for demoweb
+- name: Check the platform
+  ansible.builtin.debug:
+    msg: "[  FAIL ] RedHat 계열에만 설치 가능함. 다른 플랫폼에는 설치 불가능."
+  failed_when: ansible_distribution != "CentOS"
+
+- name: Install web packages
+  ansible.builtin.dnf:
+    name:
+      - "{{ pkg_web }}"
+      - "{{ pkg_web_https }}"
+      - "{{ pkg_fw }}"
+    state: present
+
+- name: Configure the web Service
+  ansible.builtin.template:
+    src: index.html
+    dest: /var/www/html/index.html
+    mode: '0644'
+
+- name: Start the web Service
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - "{{ svc_web }}"
+    - "{{ svc_fw }}"
+
+- name: Opent the firewall port
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - "{{ fwrule_http }}"
+    - "{{ fwrule_https }}"

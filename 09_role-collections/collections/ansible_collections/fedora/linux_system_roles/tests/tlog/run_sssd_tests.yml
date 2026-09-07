@@ -1,0 +1,35 @@
+---
+- name: Check stats for sssd-session-recording.conf
+  stat:
+    path: "{{ __tlog_sssd_session_recording_conf }}"
+  register: __tlog_sssd_session_recording_conf_stat
+
+- name: Report error if conf sssd conf file does not exist
+  assert:
+    that:
+      - __tlog_sssd_session_recording_conf_stat.stat.exists
+      - __tlog_sssd_session_recording_conf_stat.stat.mode == "0640"
+      - __tlog_sssd_session_recording_conf_stat.stat.gr_name == "sssd"
+
+- name: Get file contents of sssd-session-recording.conf
+  command: cat {{ __tlog_sssd_session_recording_conf }}
+  register: __tlog_conf_content
+  changed_when: false
+
+- name: Verify that contents of sssd conf are correct
+  assert:
+    that:
+      - ('scope=' + tlog_scope_sssd) in __tlog_conf_content.stdout
+    # yamllint disable-line rule:line-length
+      - ('users=' + tlog_users_sssd_str) in __tlog_conf_content.stdout
+    # yamllint disable-line rule:line-length
+      - ('groups=' + tlog_groups_sssd_str) in __tlog_conf_content.stdout
+    # yamllint disable-line rule:line-length
+      - ('exclude_users=' + tlog_exclude_users_sssd_str) in __tlog_conf_content.stdout
+    # yamllint disable-line rule:line-length
+      - ('exclude_groups=' + tlog_exclude_groups_sssd_str) in __tlog_conf_content.stdout
+  vars:
+    tlog_users_sssd_str: "{{ tlog_users_sssd | join(', ') }}"
+    tlog_groups_sssd_str: "{{ tlog_groups_sssd | join(', ') }}"
+    tlog_exclude_users_sssd_str: "{{ tlog_exclude_users_sssd | join(', ') }}"
+    tlog_exclude_groups_sssd_str: "{{ tlog_exclude_groups_sssd | join(', ') }}"
