@@ -62,7 +62,8 @@ ansible webservers -b -m ansible.builtin.command -a 'systemctl is-active httpd'
 
 - `restore_*.yml`과 `rollback-svc`는 실습 설정을 삭제하는 정리 작업입니다. 특히 [가상 호스트 정리 변수](09_roles_create/roles/rollback-svc/vars/main.yml)는 `/var/www/vhosts` 전체와 패키지를 삭제하고 firewalld도 중지하므로 전용 실습 VM에서 사용합니다.
 - 하드웨어 보고서는 `ansible_devices.sda.size`를 읽습니다. 디스크명이 다른 환경은 수집 대상을 맞춰야 합니다.
-- Vault 실습의 암호 파일·계정 값은 실습 자료에 포함되어 있습니다. 실행용 암호는 별도 로컬 파일로 관리하고 실제 환경의 값을 공개 저장소에 추가하지 않습니다.
+- Vault 암호 파일(`vault-pass`)은 로컬에서만 관리합니다. 암호화 예제를 실행할 때는 각 Playbook의 `vars_files` 경로에 새 실습 값으로 Vault 파일을 준비하고 `--ask-vault-pass`로 암호를 입력합니다. 새 암호만으로 저장소의 기존 암호문을 열 수는 없습니다.
+- Vault 변수는 `05_exec-ansible-vault`의 `newusers` 목록(`name`, `pw`), `05_secret/create_user.yml`의 `username`·`pwhash`(암호 해시), `05_variables_facts`의 `webid`·`webpass`를 사용합니다. 웹 인증 값은 실습 서버에 배포하는 htpasswd와 일치시킵니다.
 
 ## 사용 기술과 호환성
 
