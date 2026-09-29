@@ -1,3 +1,4 @@
+# get_url에 고정된 HTTP 주소는 실습용 파일 출처입니다. 적용 전에 파일 내용과 제공 서버를 확인하세요.
 ---
 - name: 0) DB 설치
   hosts: databases
