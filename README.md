@@ -37,6 +37,8 @@
 
 제어 노드에 Ansible과 `ansible.posix` Collection이 필요합니다. 대상 서버는 DNF·systemd·firewalld를 사용하는 Linux 환경이며, 기본 접속 계정 `ansible`의 SSH 인증과 sudo 권한을 준비합니다.
 
+이 저장소는 단원별 실습 스냅샷이므로 모든 디렉터리를 하나의 프로젝트처럼 연속 실행하지 않습니다. 현재 Ansible 환경에서 필요한 Collection, 예전 FQCN의 대응 이름, 구문 검사 결과는 [현행 환경 실행 가이드](docs/current-usage.md)에 정리했습니다.
+
 저장소를 받은 뒤 해당 실습 디렉터리에서 실행합니다. [inventory](09_roles_create/inventory)의 호스트를 실제 실습 서버로 맞추고 이름 해석을 준비합니다.
 
 ```bash
@@ -75,5 +77,7 @@ ansible webservers -b -m ansible.builtin.command -a 'systemctl is-active httpd'
 | 포함된 Collection | `ansible.posix 2.2.0`, 해당 배포물의 Core 요구사항은 `>=2.16.0` |
 | Collection 설치 경로 | requirements에 로컬 절대 경로와 실습망 HTTP 주소가 포함되어 있어 실행 환경에 맞춰 준비 필요 |
 | 시간대 모듈 | `09_roles/configure_time.yml`의 `ansible.builtin.timezone`은 [공식 모듈명 `community.general.timezone`](https://docs.ansible.com/projects/ansible/latest/collections/community/general/timezone_module.html)으로 조정 필요 |
+| SELinux 모듈 | `07_files/selinux.yml`의 `ansible.builtin.selinux`는 현재 [공식 모듈명 `ansible.posix.selinux`](https://docs.ansible.com/projects/ansible/latest/collections/ansible/posix/selinux_module.html)으로 실행 환경을 맞춰야 함 |
+| DB 계정 모듈 | 기존 MariaDB 실습은 `community.mysql.mysql_user`를 사용합니다. 현재 호환 리디렉션을 통해 실행하려면 `community.mysql`과 `ansible.mysql`이 필요합니다. 신규 MySQL 코드는 [`ansible.mysql.mysql_user`](https://docs.ansible.com/projects/ansible/latest/collections/ansible/mysql/mysql_user_module.html), 신규 MariaDB 코드는 [`ansible.mariadb.mariadb_user`](https://docs.ansible.com/projects/ansible/latest/collections/ansible/mariadb/mariadb_user_module.html)를 확인합니다. |
 
 Collection 요구사항은 [포함된 runtime.yml](09_role-collections/collections/ansible_collections/ansible/posix/meta/runtime.yml)에서 확인할 수 있습니다. 시간 동기화 예제의 `community.general`은 [requirements.yml](09_role-collections/collections/requirements.yml)에 없으므로 별도로 준비합니다.
